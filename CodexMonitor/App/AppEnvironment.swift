@@ -1,0 +1,261 @@
+import Foundation
+import Observation
+import AppKit
+import GRDB
+
+// Single source of truth for shared services and live UI state.
+// Lazily constructs DatabaseManager + ImportEngine on first use so the menu bar
+// can launch even if the SQLite directory has a permission issue.
+//
+// Big methods live in topic-focused extensions:
+//   - PricingController.swift  — LiteLLM refresh + per-row edits
+//   - ScanController.swift     — file scan + CSV export
+//   - QueryFacade.swift        — sessions / history / day queries
+
+@Observable
+@MainActor
+final class AppEnvironment {
+    let appServer: AppServerClient
+
+    var latestRateLimits: RateLimitSnapshot?
+    /// Live Anthropic OAuth `/api/oauth/usage` snapshot, polled every
+    /// 5 min by `ClaudeUsagePoller`. Mirrors `latestRateLimits` so the
+    /// menu bar can render Codex + Claude blocks symmetrically.
+    var latestClaudeUsage: ClaudeUsageSnapshot?
+    /// Last error from the Claude poller, surfaced in the menu bar so the
+    /// user can see *why* their Claude block is empty (no creds, expired
+    /// token, scope problem). Cleared on the next successful poll.
+    var lastClaudeUsageError: String?
+    var lastScanReport: ImportEngine.ScanReport?
+    var dashboardSnapshot: DashboardSnapshot?
+    var billingBlocks: BillingBlocks.Snapshot?
+    /// Provider-agnostic snapshot for the menu bar.
+    /// Always reflects the union view, never affected by `providerFilter`.
+    var menuBarSnapshot: MenuBarSnapshot?
+    var isLoadingMenuBar = false
+    var isRefreshingRateLimits = false
+    var isScanning = false
+    var isLoadingDashboard = false
+    var isRefreshingPricing = false
+    var lastPricingFetchedAt: Date?
+    var lastPricingUpdateCount: Int?
+    var lastError: String?
+
+    /// Top-level provider filter applied to dashboard / sessions / history.
+    /// Defaults to `.all` (union view).
+    var providerFilter: ProviderFilter = .all {
+        didSet {
+            if oldValue != providerFilter {
+                refreshDashboard()
+            }
+        }
+    }
+
+    private var database: DatabaseManager?
+    private var importEngine: ImportEngine?
+    var claudeEngine: ClaudeImportEngine?
+    private var poller: RateLimitPoller?
+    private var claudeUsagePoller: ClaudeUsagePoller?
+    let pricingSource = LiteLLMPricingSource()
+
+    init(appServer: AppServerClient = AppServerClient()) {
+        self.appServer = appServer
+        // Boot background polling immediately so it doesn't depend on the user
+        // ever opening the menu bar. Idempotent — safe if .task fires later too.
+        Task { [weak self] in
+            await MainActor.run { self?.startBackgroundPolling() }
+        }
+        // Stale-pricing check: if no row has ever been fetched from LiteLLM, or
+        // the freshest fetched_at is >24h old, kick a one-shot refresh. Best
+        // effort — silently tolerated if offline.
+        Task { [weak self] in
+            await self?.refreshPricingIfStale()
+        }
+    }
+
+    // MARK: - lazy services
+
+    func ensureServices() throws -> (DatabaseManager, ImportEngine) {
+        if let db = database, let eng = importEngine { return (db, eng) }
+        let db = try DatabaseManager(url: DatabaseManager.defaultURL())
+        let eng = ImportEngine(database: db)
+        self.database = db
+        self.importEngine = eng
+        self.claudeEngine = ClaudeImportEngine(database: db)
+        return (db, eng)
+    }
+
+    /// Boot the background rate-limit poller. Idempotent.
+    func startBackgroundPolling() {
+        guard poller == nil else { return }
+        do {
+            let (db, _) = try ensureServices()
+
+            // Warm-start: hydrate the last persisted Claude snapshot from
+            // the DB so the UI has something to show before the first
+            // network poll lands. Avoids the "blank + 'unavailable'" first
+            // impression when Anthropic 429s us at boot.
+            Task { [weak self] in
+                if let cached = try? await ClaudeUsageHydrator.loadLatest(database: db) {
+                    await MainActor.run {
+                        guard let self, self.latestClaudeUsage == nil else { return }
+                        self.latestClaudeUsage = cached
+                    }
+                }
+            }
+
+            let interval = SettingsStore.snapshot().pollIntervalSeconds
+            let p = RateLimitPoller(
+                appServer: appServer,
+                database: db,
+                interval: .seconds(interval)
+            ) { [weak self] snapshot in
+                await MainActor.run {
+                    guard let self else { return }
+                    self.latestRateLimits = snapshot
+                    QuotaNotifier.shared.evaluate(snapshot: snapshot)
+                }
+            }
+            self.poller = p
+            Task { await p.start() }
+
+            // Claude OAuth `/usage` poller. Independent lifecycle from the
+            // Codex poller — same transport pattern, but a much slower
+            // cadence: Anthropic edge-rate-limits this endpoint, so we
+            // hit it at most every 2 hours regardless of the user's
+            // Codex polling interval. Manual UI refresh deliberately does
+            // NOT trigger this — see `refreshRateLimits()`.
+            let cp = ClaudeUsagePoller(
+                database: db,
+                interval: .seconds(7200)
+            ) { [weak self] result in
+                await MainActor.run {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let snap):
+                        self.latestClaudeUsage = snap
+                        self.lastClaudeUsageError = nil
+                    case .failure(let err):
+                        self.lastClaudeUsageError = String(describing: err)
+                    }
+                }
+            }
+            self.claudeUsagePoller = cp
+            Task { await cp.start() }
+        } catch {
+            self.lastError = String(describing: error)
+        }
+    }
+
+    /// Apply runtime-mutable settings without restarting the app.
+    /// Path-based settings still need a relaunch (we surface that in the UI).
+    func applySettings() {
+        let snap = SettingsStore.snapshot()
+        if let p = poller {
+            Task { await p.updateInterval(.seconds(snap.pollIntervalSeconds)) }
+        }
+        // Deliberately NOT propagating `pollIntervalSeconds` to the Claude
+        // poller: its endpoint is edge-rate-limited, the user's "every
+        // 5 min" Codex preference would just earn 429s. It stays at the
+        // 2 h cadence set in `startBackgroundPolling()`.
+        // QuotaNotifier reads threshold lazily on each evaluate(), no action needed.
+    }
+
+    // MARK: - actions
+
+    func refreshRateLimits() {
+        guard !isRefreshingRateLimits else { return }
+        isRefreshingRateLimits = true
+        lastError = nil
+
+        Task { [appServer] in
+            defer { Task { @MainActor in self.isRefreshingRateLimits = false } }
+            // Codex side only. Claude `/usage` is intentionally NOT
+            // refreshed here — Anthropic edge-rate-limits the endpoint,
+            // and a 5-min poll cadence already trips it. The 2-hour
+            // background poller is the sole caller; manual UI refresh
+            // would just produce 429s and a worse user experience.
+            do {
+                let payload = try await appServer.readRateLimits()
+                let snapshot = RateLimitSnapshot(from: payload)
+                await MainActor.run {
+                    self.latestRateLimits = snapshot
+                    QuotaNotifier.shared.evaluate(snapshot: snapshot)
+                }
+            } catch {
+                await MainActor.run { self.lastError = String(describing: error) }
+            }
+        }
+    }
+
+    /// Load the menu-bar snapshot. Always queries both providers + the
+    /// Anthropic 5h block, regardless of `providerFilter`. Cheap enough to
+    /// run on every popover open / scan / refresh.
+    func refreshMenuBar() {
+        guard !isLoadingMenuBar else { return }
+        isLoadingMenuBar = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { Task { @MainActor in self.isLoadingMenuBar = false } }
+            do {
+                let (db, _) = try self.ensureServices()
+                let snap: MenuBarSnapshot = try await db.pool.read { conn in
+                    let perProvider = try Aggregator.fetchPerProviderStats(db: conn)
+                    let blocks = try BillingBlocks.loadSnapshot(
+                        db: conn, provider: .claude)
+                    return MenuBarSnapshot(
+                        codex: perProvider["codex"] ?? MenuBarSnapshot.empty("codex"),
+                        claude: perProvider["claude"] ?? MenuBarSnapshot.empty("claude"),
+                        anthropicBlocks: blocks)
+                }
+                await MainActor.run { self.menuBarSnapshot = snap }
+            } catch {
+                await MainActor.run { self.lastError = String(describing: error) }
+            }
+        }
+    }
+
+    func refreshDashboard() {
+        guard !isLoadingDashboard else { return }
+        isLoadingDashboard = true
+
+        let filter = providerFilter
+        Task { [weak self] in
+            guard let self else { return }
+            defer { Task { @MainActor in self.isLoadingDashboard = false } }
+            do {
+                let (db, _) = try self.ensureServices()
+                let snapshot = try await Aggregator.loadDashboard(
+                    from: db.pool, provider: filter)
+                // Billing blocks are an Anthropic concept — only meaningful
+                // when the active filter includes Claude data.
+                let blocks: BillingBlocks.Snapshot? = (filter == .codex) ? nil
+                    : try await db.pool.read { conn in
+                        try BillingBlocks.loadSnapshot(db: conn, provider: .claude)
+                    }
+                await MainActor.run {
+                    self.dashboardSnapshot = snapshot
+                    self.billingBlocks = blocks
+                }
+                // Menu bar is provider-agnostic — refresh alongside the
+                // dashboard so price edits, scans, and filter toggles all
+                // keep both views in sync.
+                self.refreshMenuBar()
+            } catch {
+                await MainActor.run { self.lastError = String(describing: error) }
+            }
+        }
+    }
+
+    /// Promote the menu-bar app to a regular Dock-visible app so the
+    /// dashboard window can take key focus.
+    func activateForWindow() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Demote back to a menu-bar-only app once the last window closes.
+    func demoteToAccessory() {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}

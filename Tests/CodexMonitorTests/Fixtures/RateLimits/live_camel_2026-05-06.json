@@ -1,0 +1,56 @@
+{
+  "_comment": "Captured 2026-05-06 from `codex app-server` v0.128.0, account/rateLimits/read. The wire format flipped from snake_case to camelCase between 0.126 (?) and 0.128: rate_limit -> rateLimits, primary_window -> primary, limit_window_seconds -> windowDurationMins, reset_at -> resetsAt, additional_rate_limits[] -> rateLimitsByLimitId{}. Pin this so future drift is caught by tests, not by 'menu bar shows nothing forever'.",
+  "rateLimits": {
+    "limitId": "codex",
+    "limitName": null,
+    "primary": {
+      "usedPercent": 10,
+      "windowDurationMins": 300,
+      "resetsAt": 1778062321
+    },
+    "secondary": {
+      "usedPercent": 11,
+      "windowDurationMins": 10080,
+      "resetsAt": 1778544318
+    },
+    "credits": { "hasCredits": false, "unlimited": false, "balance": "0" },
+    "planType": "prolite",
+    "rateLimitReachedType": null
+  },
+  "rateLimitsByLimitId": {
+    "codex_bengalfox": {
+      "limitId": "codex_bengalfox",
+      "limitName": "GPT-5.3-Codex-Spark",
+      "primary": {
+        "usedPercent": 0,
+        "windowDurationMins": 300,
+        "resetsAt": 1778067722
+      },
+      "secondary": {
+        "usedPercent": 0,
+        "windowDurationMins": 10080,
+        "resetsAt": 1778654522
+      },
+      "credits": null,
+      "planType": "prolite",
+      "rateLimitReachedType": null
+    },
+    "codex": {
+      "limitId": "codex",
+      "limitName": null,
+      "primary": {
+        "usedPercent": 10,
+        "windowDurationMins": 300,
+        "resetsAt": 1778062321
+      },
+      "secondary": {
+        "usedPercent": 11,
+        "windowDurationMins": 10080,
+        "resetsAt": 1778544318
+      },
+      "credits": { "hasCredits": false, "unlimited": false, "balance": "0" },
+      "planType": "prolite",
+      "rateLimitReachedType": null
+    }
+  }
+}

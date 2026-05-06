@@ -1,0 +1,125 @@
+import SwiftUI
+
+/// Dashboard window — a slim composition of three semantic sections that
+/// each answer one question:
+///
+/// 1. `ForecastSection` — am I about to blow a quota?
+/// 2. `TrendsSection`   — is my usage trending up or down?
+/// 3. `CompositionSection` — where is the spend going?
+///
+/// All three read from `AppEnvironment.dashboardSnapshot` /
+/// `billingBlocks` / `menuBarSnapshot`. The provider filter picker lives
+/// in `MainWindowView` (not here) so it sits above the dashboard /
+/// history / sessions tab switch. No `Divider()` between top-level
+/// sections — each section owns its card-style background.
+struct DashboardView: View {
+    @Environment(AppEnvironment.self) private var env
+    @Environment(SettingsStore.self) private var settings
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let snapshot = env.dashboardSnapshot {
+                    statline
+                    ForecastSection(
+                        snapshot: snapshot,
+                        blocks: env.billingBlocks,
+                        claudeUsage: env.latestClaudeUsage,
+                        providerFilter: env.providerFilter)
+                    TrendsSection(
+                        dailyExtended: snapshot.dailyExtended)
+                    CompositionSection(
+                        modelShares30d: snapshot.modelShares30d,
+                        modelSharesPrior30d: snapshot.modelSharesPrior30d,
+                        providerShares30d: snapshot.providerShares30d)
+                } else {
+                    emptyState
+                }
+            }
+            .padding(20)
+        }
+        // Make every label / number / model-name in the Dashboard
+        // selectable so the user can copy a USD figure or a session id
+        // out without screenshotting. Buttons / charts are unaffected
+        // (`.textSelection` only modifies standalone Text views).
+        .textSelection(.enabled)
+        .task { env.refreshDashboard() }
+    }
+
+    // MARK: - rolling-window statline
+
+    /// Single-line summary at the top of the Dashboard. Pulls from
+    /// `MenuBarSnapshot` so the numbers match the menu bar verbatim. The
+    /// rolling window (7d vs 30d) is shared with the menu bar so the
+    /// user sees one consistent period across the whole app. When the
+    /// user has filtered to one provider, we restrict the line to that
+    /// provider's slice; otherwise we sum both.
+    private var statline: some View {
+        let codex = env.menuBarSnapshot?.codex
+        let claude = env.menuBarSnapshot?.claude
+        let window = settings.menuBarHeadlineWindow
+        // Per-provider field selectors keep the switch on `window`
+        // out of every arithmetic line below.
+        func usd(_ s: ProviderStats?) -> Double {
+            guard let s else { return 0 }
+            return window == .last7d ? s.last7dValueUSD : s.last30dValueUSD
+        }
+        func tokens(_ s: ProviderStats?) -> Int64 {
+            guard let s else { return 0 }
+            return window == .last7d ? s.last7dTokens : s.last30dTokens
+        }
+        func sessions(_ s: ProviderStats?) -> Int {
+            guard let s else { return 0 }
+            return window == .last7d ? s.last7dSessionCount : s.last30dSessionCount
+        }
+        let usdSum: Double
+        let tokensSum: Int64
+        let sessionsSum: Int
+        switch env.providerFilter {
+        case .all:
+            usdSum      = usd(codex)      + usd(claude)
+            tokensSum   = tokens(codex)   + tokens(claude)
+            sessionsSum = sessions(codex) + sessions(claude)
+        case .codex:
+            usdSum      = usd(codex)
+            tokensSum   = tokens(codex)
+            sessionsSum = sessions(codex)
+        case .claude:
+            usdSum      = usd(claude)
+            tokensSum   = tokens(claude)
+            sessionsSum = sessions(claude)
+        }
+        let hasData = usdSum > 0 || tokensSum > 0 || sessionsSum > 0
+        return HStack {
+            if hasData {
+                Text(L10n.dashboardHeadlineStatline(
+                    window: window,
+                    usd: usdSum.formatted(.currency(code: "USD")),
+                    tokens: tokensSum.formatted(.number.notation(.compactName)),
+                    sessions: sessionsSum))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help(L10n.headlineApiEquivalentHelp)
+            } else {
+                Text(L10n.dashboardHeadlineStatlineEmpty(window: window))
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+    }
+
+    // MARK: - empty state
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text(env.isLoadingDashboard ? L10n.loadingDashboard : L10n.noData)
+                .foregroundStyle(.secondary)
+            Text(L10n.clickScanHint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 400)
+    }
+}

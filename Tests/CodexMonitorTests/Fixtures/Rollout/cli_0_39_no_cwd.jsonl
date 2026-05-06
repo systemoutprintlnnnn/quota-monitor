@@ -1,0 +1,4 @@
+{"timestamp":"2026-04-25T08:00:00.000Z","type":"session_meta","payload":{"id":"019aa0fd-2222-7000-8000-bbbbbbbbbbbb","timestamp":"2026-04-25T08:00:00.000Z","originator":"codex-cli","cli_version":"0.39.0"}}
+{"timestamp":"2026-04-25T08:00:01.000Z","type":"turn_context","payload":{"model":"gpt-4o"}}
+{"timestamp":"2026-04-25T08:00:02.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0,"total_tokens":60}}}}
+{"timestamp":"2026-04-25T08:00:03.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":120,"cached_input_tokens":0,"output_tokens":40,"reasoning_output_tokens":0,"total_tokens":160}}}}

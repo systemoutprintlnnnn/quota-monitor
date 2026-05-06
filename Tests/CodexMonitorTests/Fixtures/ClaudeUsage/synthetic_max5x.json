@@ -1,0 +1,8 @@
+{
+  "_comment": "Synthetic Max5x-tier response: full 5h/7d/per-model windows populated. Used to verify per-model window decoding (Opus & Sonnet) and tier badge propagation.",
+  "rate_limit_tier": "max5x",
+  "five_hour": {"utilization": 42.5, "resets_at": "2026-04-29T15:00:00.000000+00:00"},
+  "seven_day": {"utilization": 18.3, "resets_at": "2026-05-05T09:00:00.000000+00:00"},
+  "seven_day_opus": {"utilization": 73.1, "resets_at": "2026-05-05T09:00:00.000000+00:00"},
+  "seven_day_sonnet": {"utilization": 9.8, "resets_at": "2026-05-05T09:00:00.000000+00:00"}
+}

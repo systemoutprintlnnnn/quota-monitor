@@ -1,0 +1,5 @@
+{
+  "_comment": "Legacy CodexBar-era capture using the OLD `used_percent` (0..100) key plus `reset_at` instead of `resets_at`. Kept to lock the backward-compat path in `mkWindow`. If this stops decoding, the compat shim has been deleted.",
+  "five_hour": {"used_percent": 25.0, "reset_at": "2026-04-29T15:00:00Z"},
+  "seven_day": {"used_percent": 4.5, "reset_at": "2026-05-05T09:00:00Z"}
+}

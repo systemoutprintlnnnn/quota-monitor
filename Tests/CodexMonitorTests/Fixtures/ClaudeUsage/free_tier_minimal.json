@@ -1,0 +1,5 @@
+{
+  "_comment": "Free-tier response: only 5h, no 7d, no per-model breakdown, no extra_usage. Verifies graceful degradation — every nested field is optional in the decoder.",
+  "rate_limit_tier": "free",
+  "five_hour": {"utilization": 0.0, "resets_at": "2026-04-29T15:00:00Z"}
+}

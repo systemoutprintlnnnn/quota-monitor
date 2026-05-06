@@ -1,0 +1,261 @@
+import SwiftUI
+
+/// Forecast card: per-provider quota block (Codex 5h+7d, Claude 5h) with a
+/// pace line. Answers "am I about to blow a quota?". Replaces the old
+/// `codexQuotaSection` + `billingBlockSection` pair on the Dashboard.
+/// Sample-source caption, "Active 5-hour block" header, four KPI tiles,
+/// "started at HH:MM" line, recent-blocks history, and the verbose model
+/// list are all gone — model list collapses into a tooltip on the Claude
+/// card header.
+struct ForecastSection: View {
+    let snapshot: DashboardSnapshot
+    let blocks: BillingBlocks.Snapshot?
+    let claudeUsage: ClaudeUsageSnapshot?
+    let providerFilter: ProviderFilter
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.forecastSectionTitle)
+                    .font(.headline)
+                Spacer()
+            }
+
+            // Two cards side-by-side on wide windows; stack when narrow.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 14) {
+                    if providerFilter != .claude { codexCard }
+                    if providerFilter != .codex  { claudeCard }
+                }
+                VStack(alignment: .leading, spacing: 14) {
+                    if providerFilter != .claude { codexCard }
+                    if providerFilter != .codex  { claudeCard }
+                }
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.secondary.opacity(0.06))
+        )
+    }
+
+    // MARK: - Codex card
+
+    @ViewBuilder
+    private var codexCard: some View {
+        let quota = snapshot.codexQuota
+        ProviderForecastCard(
+            label: L10n.codex,
+            tier: nil,
+            tooltip: nil,
+            isEmpty: quota?.primary == nil && quota?.secondary == nil,
+            emptyText: L10n.forecastNoCodexQuota
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let primary = quota?.primary {
+                    QuotaProgressRow(
+                        title: L10n.quotaCardTitle5h,
+                        usedPercent: primary.usedPercent,
+                        resetsAt: primary.resetsAt,
+                        burn: quota?.burn["primary"])
+                }
+                if let secondary = quota?.secondary {
+                    QuotaProgressRow(
+                        title: L10n.quotaCardTitle7d,
+                        usedPercent: secondary.usedPercent,
+                        resetsAt: secondary.resetsAt,
+                        burn: quota?.burn["secondary"])
+                }
+                // Pace line: prefer the 5h burn rate (more responsive); fall
+                // back to the 7d slope when only that bucket has samples.
+                if let burn = quota?.burn["primary"] ?? quota?.burn["secondary"],
+                   abs(burn.percentPerMinute) > 0.0005 {
+                    Text(L10n.forecastPaceCodex(percentPerHr: burn.percentPerMinute * 60))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Claude card
+
+    @ViewBuilder
+    private var claudeCard: some View {
+        let block = blocks?.currentBlock
+        let modelTooltip = block?.models.joined(separator: " · ")
+        let burn = blocks?.burnRate
+        // Plan badges are intentionally hidden across providers — the raw
+        // upstream values ("prolite", "max5x") confuse users more than they
+        // help, and the plan rarely changes for a single account.
+        let tier: String? = nil
+        // Prefer the live `/usage` 5h window (matches what Anthropic itself
+        // shows). Fall back to the locally-derived billing block when the
+        // OAuth poll hasn't landed yet — that's the only signal we have.
+        let liveFiveHour = claudeUsage?.fiveHour
+        let liveSevenDay = claudeUsage?.sevenDay
+        let isFresh = liveFiveHour != nil || liveSevenDay != nil || block != nil
+
+        ProviderForecastCard(
+            label: L10n.claude,
+            tier: tier,
+            tooltip: modelTooltip,
+            isEmpty: !isFresh,
+            emptyText: L10n.forecastNoClaudeQuota
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let live = liveFiveHour {
+                    QuotaProgressRow(
+                        title: L10n.quotaCardTitle5h,
+                        usedPercent: live.usedPercent,
+                        resetsAt: live.resetAt,
+                        burn: nil)
+                } else if let block {
+                    let pct = blockProgress(block)
+                    let resetsAt = block.endTime
+                    QuotaProgressRow(
+                        title: L10n.quotaCardTitle5h,
+                        usedPercent: pct * 100,
+                        resetsAt: resetsAt,
+                        burn: nil)
+                }
+                if let week = liveSevenDay {
+                    QuotaProgressRow(
+                        title: L10n.quotaCardTitle7d,
+                        usedPercent: week.usedPercent,
+                        resetsAt: week.resetAt,
+                        burn: nil)
+                }
+                if let burn {
+                    Text(L10n.forecastPaceClaude(
+                        costPerHr: burn.costPerHour,
+                        tokensPerMin: burn.tokensPerMinute))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Mirror of MenuBarContentView's `Claude5hRow.pct` — fraction of the
+    /// 5h window already elapsed for the active block (1 if inactive).
+    private func blockProgress(_ block: BillingBlocks.Block) -> Double {
+        let elapsed = max(0, Date().timeIntervalSince(block.startTime))
+        let total = BillingBlocks.sessionDuration
+        return block.isActive ? min(1, elapsed / total) : 1
+    }
+}
+
+// MARK: - Card chrome
+
+/// Card background + header used by both the Codex and Claude forecast
+/// blocks. Owns the empty-state branch so the caller's `body` can stay
+/// focused on the rows.
+private struct ProviderForecastCard<Content: View>: View {
+    let label: String
+    let tier: String?
+    let tooltip: String?
+    let isEmpty: Bool
+    let emptyText: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                if let tier, !tier.isEmpty {
+                    Text(tier)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .help(tooltip ?? "")
+
+            if isEmpty {
+                Text(emptyText)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                content()
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 0.5)
+        )
+    }
+}
+
+/// Quota progress row used by both providers in the Forecast card. Only
+/// uses green / red for semantic meaning (healthy / warning); neutral text
+/// stays `.secondary`. The countdown ticks once per minute via a
+/// TimelineView so the displayed reset time stays fresh without forcing
+/// the whole Dashboard to re-render.
+struct QuotaProgressRow: View {
+    let title: String
+    let usedPercent: Double
+    let resetsAt: Date
+    /// Optional burn slope — when present and projected to bust the
+    /// natural reset, the trailing label flips to red and reads
+    /// "hits 100% in ~Xh".
+    let burn: CodexBurnRate?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { ctx in
+            let now = ctx.date
+            let usedFraction = max(0, min(1, usedPercent / 100))
+            let remaining = max(0, resetsAt.timeIntervalSince(now))
+            let warn = usedPercent >= 80
+            let bar: Color = warn ? .red : .green
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(title)
+                        .font(.caption.weight(.medium))
+                    Spacer()
+                    Text(String(format: "%.0f%%", usedPercent))
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(warn ? .red : .primary)
+                }
+                ProgressView(value: usedFraction)
+                    .tint(bar)
+                trailingLabel(now: now, remaining: remaining)
+                    .font(.caption2.monospacedDigit())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func trailingLabel(now: Date, remaining: TimeInterval) -> some View {
+        if let burn,
+           let etaMinutes = burn.minutesUntilExhaustion(currentPercent: usedPercent),
+           etaMinutes < remaining / 60 {
+            Text(L10n.forecastHits100In(formatRemaining(seconds: etaMinutes * 60)))
+                .foregroundStyle(.red)
+        } else {
+            Text(L10n.forecastResetsIn(formatRemaining(seconds: remaining)))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// "1d 4h", "3h 12m", "47m" — same rule as the menu bar's countdown.
+    private func formatRemaining(seconds: TimeInterval) -> String {
+        guard seconds > 0 else { return "—" }
+        let total = Int(seconds)
+        let days = total / 86400
+        let hours = (total % 86400) / 3600
+        let minutes = (total % 3600) / 60
+        if days > 0 { return "\(days)d \(hours)h" }
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+}
