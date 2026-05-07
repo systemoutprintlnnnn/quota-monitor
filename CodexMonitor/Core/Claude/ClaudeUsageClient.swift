@@ -3,20 +3,33 @@ import Foundation
 /// Fetches live quota usage from Anthropic's OAuth-protected
 /// `/api/oauth/usage` endpoint. The endpoint is undocumented but powers
 /// the official `claude` CLI's quota meter and is the only source of
-/// truth for Pro / Max plan usage (header-based `anthropic-ratelimit-*`
-/// fields require routing every API call through us, which we don't).
+/// truth for Pro / Max plan usage.
 ///
-/// Credential lookup order (matches CodexBar):
-///   1. `~/.claude/.credentials.json` (file written by Claude Code CLI on
-///      every login). No keychain prompt — strongly preferred.
+/// **Refresh policy.** This client never refreshes the access token
+/// itself. When the local token is expired (or the server returns 401),
+/// we delegate the actual OAuth refresh to the user's `claude` CLI by
+/// spawning it via `ClaudeCLIRefreshTrigger`. The CLI rotates the
+/// refresh token in the system Keychain, then we re-read the freshest
+/// access token. Rationale: refresh tokens **rotate** server-side; if
+/// both the CLI and CodexMonitor refresh independently, whoever loses
+/// the race ends up holding a revoked refresh token and breaks the
+/// other process for hours. Letting the CLI own the refresh keeps the
+/// CLI working, and we just consume what it produces.
+///
+/// Credential lookup order:
+///   1. `~/.claude/.credentials.json` (file written by Claude Code CLI
+///      on every login). No keychain prompt — strongly preferred.
 ///   2. macOS Keychain `Claude Code-credentials` service. May prompt the
 ///      user the first time (or every time, depending on
 ///      `SettingsStore.keychainPolicy`). Skipped entirely when policy is
-///      `.never`.
+///      `.never`. When multiple items share that service name (e.g. a
+///      dev machine that ran an older CodexMonitor that wrote its own
+///      copy), we pick the one with the most recent
+///      `kSecAttrModificationDate`.
 ///
 /// Token requirement: scope must include `user:profile`. CLI-only tokens
-/// scoped to `user:inference` get a 403 from this endpoint — we surface
-/// that as `.insufficientScope` so the UI can tell the user to re-login.
+/// scoped to `user:inference` get a 403 — we surface that as
+/// `.insufficientScope` so the UI can tell the user to re-login.
 actor ClaudeUsageClient: ClaudeUsageFetching {
 
     enum FetchError: Error, CustomStringConvertible {
@@ -56,29 +69,47 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
 
     private let session: URLSession
     private let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+    private let refreshTrigger: ClaudeCLIRefreshTrigger
 
-    /// In-process token cache. Set on the first successful keychain or
-    /// file read; reused for the rest of the process lifetime so we don't
-    /// reopen the Keychain ACL prompt every 5-minute poll. Cleared only
-    /// when the server reports the token is bad (`unauthorized`), at
-    /// which point we re-read on the next poll.
-    ///
-    /// Caching is safe because (a) the access token doesn't change
-    /// mid-session — Claude Code CLI rotates it, and we re-read from disk
-    /// every poll anyway; (b) on `unauthorized` we explicitly invalidate.
+    /// Parsed credentials regardless of expiry. Kept in a struct (not a
+    /// bare `String`) so `loadAccessToken` can decide whether to delegate
+    /// a refresh to the CLI without re-parsing.
+    struct StoredCredentials {
+        let accessToken: String
+        /// Unix epoch in **milliseconds** (CLI convention). Optional —
+        /// older captures didn't include it.
+        let expiresAtMs: Double?
+        let scopes: [String]?
+    }
+
+    /// In-process token cache. Set on the first successful read; cleared
+    /// when the server reports the token is bad (`unauthorized`) or when
+    /// we trigger a CLI refresh. Avoids re-prompting the Keychain ACL on
+    /// every poll.
     private var cachedToken: String?
     /// Set to true when the user clicks "Deny" / cancels the prompt OR
     /// the keychain query returns auth-class errors. Stops us from asking
-    /// again in this process; combined with `.never` policy persistence
-    /// below, also stops asking on next launch.
+    /// again in this process.
     private var keychainBlocked = false
 
-    init(session: URLSession = .shared) {
+    init(
+        session: URLSession = .shared,
+        refreshTrigger: ClaudeCLIRefreshTrigger = ClaudeCLIRefreshTrigger.shared
+    ) {
         self.session = session
+        self.refreshTrigger = refreshTrigger
     }
 
     /// One-shot fetch. Caller decides retry / scheduling.
     func fetch() async throws -> ClaudeUsageSnapshot {
+        try await fetchInternal(retryAfterRefresh: false)
+    }
+
+    /// `retryAfterRefresh` caps the 401-recovery loop at one extra round-trip.
+    /// On the first 401 we ask the CLI to refresh and re-enter with
+    /// `retryAfterRefresh = true`; if that 401s again we surface
+    /// `.unauthorized` so the user sees a real failure.
+    private func fetchInternal(retryAfterRefresh: Bool) async throws -> ClaudeUsageSnapshot {
         guard let token = try await loadAccessToken() else {
             throw FetchError.noCredentials
         }
@@ -89,7 +120,7 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         // Required header per Anthropic's beta gating. Matches CodexBar.
         req.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("CodexMonitor/0.1", forHTTPHeaderField: "User-Agent")
+        req.setValue("CodexMonitor/0.2", forHTTPHeaderField: "User-Agent")
 
         let data: Data
         let response: URLResponse
@@ -107,9 +138,14 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         case 200:
             return try Self.decode(data: data, capturedAt: Date())
         case 401:
-            // Server says the token is bad — drop the cache so the next
-            // poll re-reads (in case the user just re-ran `claude login`).
+            // Server says the token is bad. Drop the cache and ask the
+            // CLI to refresh once. If that doesn't produce a fresher
+            // token (CLI not installed, refresh-cooldown active, RT
+            // revoked → user must re-login) we surface .unauthorized.
             cachedToken = nil
+            if !retryAfterRefresh, await refreshTrigger.triggerRefreshIfAllowed() {
+                return try await fetchInternal(retryAfterRefresh: true)
+            }
             throw FetchError.unauthorized
         case 403:
             // Anthropic returns 403 when token's scope doesn't include
@@ -134,6 +170,7 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         }
     }
 
+
     // MARK: - Decoding
 
     /// Parse the `/usage` response. The shape we observe:
@@ -147,10 +184,7 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
     /// All keys are optional — Free plans in particular omit most.
     /// `extra_usage` (pay-as-you-go overflow) is intentionally NOT
     /// decoded: the product team decided we don't surface dollar-billed
-    /// overflow in CodexMonitor. If Anthropic ever wires it back into
-    /// Claude Code's pricing UX and we want it back, the field comes
-    /// through as a JSON object so adding a `Wire.extra_usage` line
-    /// later is trivial.
+    /// overflow in CodexMonitor.
     static func decode(data: Data, capturedAt: Date) throws -> ClaudeUsageSnapshot {
         struct Wire: Decodable {
             let rate_limit_tier: String?
@@ -187,8 +221,7 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         // captures showed `used_percent` as 0..100 too. Some very early
         // beta captures used 0..1 ratios — we keep that compat by
         // heuristic: a value <= 1.5 is treated as a 0..1 ratio (so 0.42
-        // → 42%), anything larger is already a percent. This matches
-        // what every real response on the dev account returns today.
+        // → 42%), anything larger is already a percent.
         // Tests in `ClaudeUsageDecoderTests` lock this with real fixtures.
         func mkWindow(_ w: WindowWire?, duration: TimeInterval) -> ClaudeUsageSnapshot.Window? {
             guard let w else { return nil }
@@ -220,114 +253,144 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
     /// File-first, keychain-fallback. Returns nil only when neither source
     /// yielded a token (caller turns it into `.noCredentials`).
     ///
-    /// **Prompt-suppression policy** (the whole reason this method is on
-    /// the actor instead of a static helper):
-    ///   1. If `cachedToken` is set, return it. Skips the Keychain ACL
-    ///      check entirely — that's what was triggering the password
-    ///      prompt every poll. ad-hoc-signed builds re-derive a new
-    ///      cdhash on every `swift build`, so the user's "Always Allow"
-    ///      click never sticks across rebuilds.
-    ///   2. Always try the on-disk credentials file first (no prompt).
-    ///   3. Try Keychain only if (a) policy permits and (b) we haven't
-    ///      already been blocked once this process. A single denial /
-    ///      timeout flips `keychainBlocked` to true so the next 287 polls
-    ///      go quiet.
-    ///   4. We deliberately don't auto-persist `.never` on a single
-    ///      denial — the user might have been busy / mistyped. They get
-    ///      no more prompts this run; if they want permanent silence,
-    ///      Settings → Live quotas → "Never read Keychain".
+    /// **Expired-token path.** When the local token is expired we ask the
+    /// CLI to refresh (synchronously, with a short timeout — see
+    /// `ClaudeCLIRefreshTrigger`). On success we re-read; on failure we
+    /// surface whatever stale token we had so the eventual 401 path can
+    /// fail explicitly rather than silently returning nil.
     private func loadAccessToken() async throws -> String? {
         if let cached = cachedToken {
             return cached
         }
-        if let token = try Self.readCredentialsFile() {
-            cachedToken = token
-            return token
+
+        // Read both sources up front, no expiry gate. We need to know
+        // whether *anything* exists before deciding to spawn the CLI.
+        let fileCreds = Self.readStoredCredentialsFile()
+        let kcCreds = readKeychainCredsIfAllowed()
+
+        // Prefer the source whose token is still valid.
+        if let f = fileCreds, !Self.isExpired(f) {
+            cachedToken = f.accessToken
+            return f.accessToken
         }
+        if let k = kcCreds, !Self.isExpired(k) {
+            cachedToken = k.accessToken
+            return k.accessToken
+        }
+
+        // Both stale (or only one source exists and it's stale). Ask the
+        // CLI to refresh. The trigger handles its own coalescing and
+        // cooldown — multiple concurrent expired-token detections share
+        // a single `claude` invocation.
+        if fileCreds != nil || kcCreds != nil {
+            if let exp = (fileCreds ?? kcCreds)?.expiresAtMs {
+                Log.poller.info("claude token expired (\(exp, privacy: .public)ms), asking CLI to refresh")
+            }
+            if await refreshTrigger.triggerRefreshIfAllowed() {
+                // Re-read after the CLI updates the Keychain (and
+                // possibly the file).
+                let f2 = Self.readStoredCredentialsFile()
+                let k2 = readKeychainCredsIfAllowed()
+                if let f = f2, !Self.isExpired(f) {
+                    cachedToken = f.accessToken
+                    return f.accessToken
+                }
+                if let k = k2, !Self.isExpired(k) {
+                    cachedToken = k.accessToken
+                    return k.accessToken
+                }
+            }
+            // Refresh blocked or didn't help. Return whatever stale
+            // token we have so the caller can hit the server and
+            // surface a real `unauthorized`.
+            if let f = fileCreds {
+                cachedToken = f.accessToken
+                return f.accessToken
+            }
+            if let k = kcCreds {
+                cachedToken = k.accessToken
+                return k.accessToken
+            }
+        }
+
+        return nil
+    }
+
+    /// Wraps `readKeychainTokenOutcome` in actor-state-aware error
+    /// handling. Sets `keychainBlocked` on user denial / no-such-item so
+    /// we don't keep re-prompting in the same process.
+    private func readKeychainCredsIfAllowed() -> StoredCredentials? {
         let policy = SettingsStore.snapshot().keychainPolicy
         guard policy != .never, !keychainBlocked else { return nil }
-
-        let outcome = Self.readKeychainTokenOutcome()
-        switch outcome {
-        case .ok(let token, let raw):
-            cachedToken = token
-            // Mirror the credential to disk so the next process launch
-            // can read it without prompting. No-op if a file already
-            // exists (e.g. the CLI is the source of truth).
-            Self.mirrorTokenToFile(rawKeychainData: raw, fallbackToken: token)
-            return token
+        switch Self.readKeychainTokenOutcome() {
+        case .ok(_, let raw):
+            return Self.parseCredentials(jsonData: raw)
         case .denied, .interactionNotAllowed, .notFound:
-            // All three mean "don't keep asking". `notFound` in particular
-            // would otherwise re-query the keychain every 5 min for an
-            // item that doesn't exist — pointless I/O and on some
-            // systems still pops the unlock prompt.
             keychainBlocked = true
             return nil
         case .otherError:
-            // Unknown status — try once more on the next poll.
             return nil
         }
     }
 
-    /// Read `~/.claude/.credentials.json`. The Claude Code CLI **used to**
-    /// rewrite this on every login + token refresh, so it was the freshest
-    /// source. Format observed:
+    /// Read `~/.claude/.credentials.json`. Format observed:
     /// ```
     /// { "claudeAiOauth": { "accessToken": "...", "refreshToken": "...",
     ///                      "expiresAt": 1735000000000, "scopes": [...] } }
     /// ```
-    /// **Drift caught 2026-05-06:** newer CLI versions (≥ 2.1.x) only
-    /// rotate the access token inside the Keychain, leaving the on-disk
-    /// file frozen at its last `claude login` value. If we accept the file
-    /// blindly we get stuck on an expired token forever — file always
-    /// "wins" over the up-to-date Keychain copy. So: parse `expiresAt`
-    /// (with a 60-second clock-skew margin) and treat anything past its
-    /// expiry as "no usable file token", so `loadAccessToken` falls
-    /// through to the Keychain.
-    /// We still don't refresh tokens ourselves — that's the CLI's job.
-    static func readCredentialsFile() throws -> String? {
-        let override = SettingsStore.snapshot().claudeHomeOverride
-        let home = !override.isEmpty
-            ? override
-            : (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
-        let path = (home as NSString).appendingPathComponent(".credentials.json")
+    /// We only read; we never write. If the file is stale and the CLI's
+    /// Keychain copy is fresher (CLI ≥ 2.1.x stops mirroring refreshes
+    /// to disk), `loadAccessToken` falls through to the Keychain path.
+    static func readStoredCredentialsFile() -> StoredCredentials? {
+        let path = credentialsFilePath()
         guard FileManager.default.fileExists(atPath: path),
               let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
             return nil
         }
+        return parseCredentials(jsonData: data)
+    }
+
+    /// Returns true when the stored credentials are within 60s of expiry
+    /// (or already past). Tokens with no `expiresAtMs` are treated as
+    /// fresh — older CLI captures didn't include the field.
+    static func isExpired(_ creds: StoredCredentials) -> Bool {
+        guard let expMs = creds.expiresAtMs else { return false }
+        return Date().timeIntervalSince1970 >= (expMs / 1000.0 - 60)
+    }
+
+    /// Parse the canonical `{"claudeAiOauth": {...}}` wrapper. Used by
+    /// both the file reader and the Keychain reader.
+    static func parseCredentials(jsonData: Data) -> StoredCredentials? {
         struct Wrapper: Decodable {
             struct Inner: Decodable {
                 let accessToken: String?
-                /// Unix epoch in **milliseconds** (CLI-side convention).
-                /// Optional because very old CLI captures didn't include it.
                 let expiresAt: Double?
+                let scopes: [String]?
             }
             let claudeAiOauth: Inner?
         }
-        let inner = try JSONDecoder().decode(Wrapper.self, from: data).claudeAiOauth
-        guard let token = inner?.accessToken else { return nil }
-        if let expMs = inner?.expiresAt {
-            // 60s margin so we don't hand the network a token that will
-            // expire mid-request. expMs is in ms since epoch (CLI convention).
-            let expSeconds = expMs / 1000.0 - 60
-            if Date().timeIntervalSince1970 >= expSeconds {
-                Log.poller.info("claude .credentials.json token expired (\(expMs, privacy: .public)ms), falling through to Keychain")
-                return nil
-            }
-        }
-        return token
+        guard let inner = (try? JSONDecoder().decode(Wrapper.self, from: jsonData))?
+                .claudeAiOauth,
+              let access = inner.accessToken
+        else { return nil }
+        return StoredCredentials(
+            accessToken: access,
+            expiresAtMs: inner.expiresAt,
+            scopes: inner.scopes)
     }
 
-    /// Outcome of a keychain read. Distinguishing between "denied" and
-    /// "no such item" lets the caller decide whether to escalate to
-    /// auto-disabling the policy.
-    ///
-    /// The `.ok` payload carries both the parsed access token AND the
-    /// original raw bytes that were stored in the Keychain. We need the
-    /// raw bytes so we can mirror them verbatim to
-    /// `~/.claude/.credentials.json` (see `mirrorTokenToFile`) — that
-    /// file is the silent fallback that prevents the Keychain prompt
-    /// from re-firing after every app restart.
+    /// Resolve `~/.claude/.credentials.json` (respecting the
+    /// `claudeHomeOverride` setting used by tests).
+    static func credentialsFilePath() -> String {
+        let override = SettingsStore.snapshot().claudeHomeOverride
+        let home = !override.isEmpty
+            ? override
+            : (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
+        return (home as NSString).appendingPathComponent(".credentials.json")
+    }
+
+
+    /// Outcome of a keychain read.
     enum KeychainOutcome {
         case ok(token: String, raw: Data)
         case notFound
@@ -337,26 +400,82 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
     }
 
     /// Pull `Claude Code-credentials` (service name) generic password from
-    /// the login keychain. Wraps `SecItemCopyMatching` and classifies the
-    /// status code so the actor can react sensibly to denials.
+    /// the login keychain.
+    ///
+    /// **Multiple-item disambiguation.** Some dev machines (and previous
+    /// CodexMonitor bugs) ended up with more than one item under this
+    /// service. `kSecMatchLimitOne` returns an arbitrary match, which
+    /// can be the stale one — we observed exactly this on 2026-05-07.
+    /// Borrowed from CodexBar: query with `kSecMatchLimitAll`, sort by
+    /// `kSecAttrModificationDate` desc, then re-fetch the data of the
+    /// freshest persistent ref. CodexBar source:
+    /// https://github.com/steipete/CodexBar/blob/main/Sources/CodexBarCore/Providers/Claude/ClaudeOAuth/ClaudeOAuthCredentials.swift#L1485-L1517
     static func readKeychainTokenOutcome() -> KeychainOutcome {
-        let query: [String: Any] = [
+        let listQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Claude Code-credentials",
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true,
+            kSecReturnPersistentRef as String: true,
+        ]
+        var listResult: CFTypeRef?
+        let listStatus = SecItemCopyMatching(listQuery as CFDictionary, &listResult)
+        switch listStatus {
+        case errSecItemNotFound:
+            return .notFound
+        case errSecUserCanceled, errSecAuthFailed:
+            return .denied
+        case errSecInteractionNotAllowed:
+            return .interactionNotAllowed
+        case errSecSuccess:
+            break
+        default:
+            return .otherError
+        }
+        guard let items = listResult as? [[String: Any]], !items.isEmpty else {
+            return .notFound
+        }
+        // Sort by modification date desc; fall back to creation date,
+        // then to insertion order.
+        let sorted = items.enumerated().sorted { lhs, rhs in
+            let lDate = (lhs.element[kSecAttrModificationDate as String] as? Date)
+                ?? (lhs.element[kSecAttrCreationDate as String] as? Date)
+                ?? .distantPast
+            let rDate = (rhs.element[kSecAttrModificationDate as String] as? Date)
+                ?? (rhs.element[kSecAttrCreationDate as String] as? Date)
+                ?? .distantPast
+            if lDate != rDate { return lDate > rDate }
+            return lhs.offset < rhs.offset
+        }
+        guard let ref = sorted.first?.element[kSecValuePersistentRef as String] as? Data else {
+            return .otherError
+        }
+        // Re-fetch the data using the persistent ref of the freshest item.
+        let dataQuery: [String: Any] = [
+            kSecValuePersistentRef as String: ref,
             kSecReturnData as String: true,
         ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        switch status {
+        var dataResult: CFTypeRef?
+        let dataStatus = SecItemCopyMatching(dataQuery as CFDictionary, &dataResult)
+        switch dataStatus {
         case errSecSuccess:
-            guard let data = item as? Data else { return .otherError }
-            // Keychain may contain either the bare token or the same JSON
-            // wrapper as the on-disk file. Try JSON first, fall back to raw.
-            if let token = try? JSONDecoder()
-                .decode([String: [String: String]].self, from: data)["claudeAiOauth"]?["accessToken"] {
-                return .ok(token: token, raw: data)
+            guard let data = dataResult as? Data else { return .otherError }
+            // Keychain may contain either the bare token or the same
+            // JSON wrapper as the on-disk file. Use the canonical parser
+            // so we tolerate non-string fields like `expiresAt: 1778…`
+            // (Number).
+            if let creds = parseCredentials(jsonData: data) {
+                return .ok(token: creds.accessToken, raw: data)
             }
+            // If the blob *parses as JSON* but we couldn't extract creds,
+            // it's a shape we don't understand — DO NOT fall through to
+            // returning the raw JSON as a token (that's how the
+            // pre-2026-05-07 bug snuck through and returned a 1+KB blob
+            // as the bearer).
+            if (try? JSONSerialization.jsonObject(with: data)) != nil {
+                return .otherError
+            }
+            // Genuine bare-string token (very old captures).
             if let s = String(data: data, encoding: .utf8) {
                 return .ok(token: s.trimmingCharacters(in: .whitespacesAndNewlines), raw: data)
             }
@@ -372,131 +491,9 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         }
     }
 
-    /// Mirror a successful Keychain read into `~/.claude/.credentials.json`
-    /// so future app launches can skip the Keychain prompt entirely.
-    ///
-    /// **Why this exists.** Keychain ACLs are tied to the cdhash of the
-    /// requesting binary. CodexMonitor is ad-hoc signed, so every
-    /// `swift build` produces a new cdhash and the user's "Always Allow"
-    /// click never sticks across rebuilds — they get the password prompt
-    /// on every launch. The file source has no such restriction (just
-    /// POSIX perms), so a one-time mirror permanently silences the prompt.
-    ///
-    /// **Safety.**
-    ///   - 0600 perms (owner read/write only) — same protection level as
-    ///     the file the Claude Code CLI writes itself.
-    ///   - Atomic write via tmp + rename so a crash mid-write can't leave
-    ///     a half-written file.
-    ///   - We refuse to overwrite a file whose token is **fresh** (the
-    ///     CLI's own write that we want to read on next launch). A file
-    ///     whose `expiresAt` is in the past is treated as stale — newer
-    ///     CLI versions only rotate the access token in the Keychain and
-    ///     leave the on-disk file frozen, so that's the *common* case
-    ///     and the only practical way our process keeps working without
-    ///     the keychain prompt firing every poll.
-    ///   - If the Keychain blob isn't already a JSON wrapper, we wrap
-    ///     the bare token in the minimal `claudeAiOauth.accessToken`
-    ///     shape so the CLI / our own reader can parse it.
-    ///
-    /// Returns true if a file was written (for logging / tests).
-    @discardableResult
-    static func mirrorTokenToFile(rawKeychainData: Data, fallbackToken: String) -> Bool {
-        let override = SettingsStore.snapshot().claudeHomeOverride
-        let home = !override.isEmpty
-            ? override
-            : (NSHomeDirectory() as NSString).appendingPathComponent(".claude")
-        let path = (home as NSString).appendingPathComponent(".credentials.json")
-        let fm = FileManager.default
-
-        // Don't clobber an existing file *unless* it's already past its
-        // own expiresAt. The "newer CLI only updates Keychain" drift
-        // means a stale file would otherwise lock us into a perma-401
-        // loop on the next launch (file still wins over keychain in
-        // `loadAccessToken`'s order).
-        if fm.fileExists(atPath: path) {
-            if !Self.fileTokenIsExpired(at: path) {
-                return false
-            }
-        }
-
-        // Ensure ~/.claude exists (it usually does, but be defensive on
-        // fresh installs).
-        if !fm.fileExists(atPath: home) {
-            try? fm.createDirectory(atPath: home, withIntermediateDirectories: true,
-                                    attributes: [.posixPermissions: 0o700])
-        }
-
-        // Decide what to write. If the Keychain blob already parses as
-        // the canonical JSON wrapper, mirror it verbatim — preserves
-        // refreshToken, expiresAt, scopes, etc. that the CLI may need
-        // later. Otherwise build a minimal wrapper around the bare token.
-        let payload: Data
-        if (try? JSONSerialization.jsonObject(with: rawKeychainData)) != nil {
-            payload = rawKeychainData
-        } else {
-            let wrapper: [String: Any] = [
-                "claudeAiOauth": ["accessToken": fallbackToken]
-            ]
-            guard let encoded = try? JSONSerialization.data(
-                withJSONObject: wrapper, options: [.prettyPrinted]) else {
-                return false
-            }
-            payload = encoded
-        }
-
-        // Atomic write: temp file in same directory, then rename.
-        let tmp = path + ".tmp"
-        guard fm.createFile(atPath: tmp, contents: payload,
-                            attributes: [.posixPermissions: 0o600]) else {
-            return false
-        }
-        do {
-            // `replaceItem` handles the rename atomically on APFS.
-            _ = try fm.replaceItemAt(URL(fileURLWithPath: path),
-                                     withItemAt: URL(fileURLWithPath: tmp))
-            return true
-        } catch {
-            // Fall back to a plain rename. If even that fails, clean up
-            // the tmp file so we don't leave litter.
-            do {
-                try fm.moveItem(atPath: tmp, toPath: path)
-                return true
-            } catch {
-                try? fm.removeItem(atPath: tmp)
-                return false
-            }
-        }
-    }
-
-    /// Returns true if the on-disk `~/.claude/.credentials.json` token
-    /// has already expired (or is within 60s of expiring). Used to gate
-    /// `mirrorTokenToFile`'s no-clobber rule — see that method's doc
-    /// comment for the "newer CLI only updates Keychain" drift this
-    /// guards against.
-    private static func fileTokenIsExpired(at path: String) -> Bool {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else {
-            // If we can't read it, treat as expired so the caller will
-            // try to overwrite — the alternative is permanent breakage.
-            return true
-        }
-        struct Wrapper: Decodable {
-            struct Inner: Decodable { let expiresAt: Double? }
-            let claudeAiOauth: Inner?
-        }
-        guard let expMs = (try? JSONDecoder().decode(Wrapper.self, from: data))?
-                .claudeAiOauth?.expiresAt
-        else {
-            // No expiry → can't prove freshness. Be conservative: keep
-            // the existing file (false). User can `claude login` to fix.
-            return false
-        }
-        return Date().timeIntervalSince1970 >= (expMs / 1000.0 - 60)
-    }
-
     /// Persist `keychainPolicy = .never` on the main actor. Currently
     /// only invoked by the "Disable now" button surfaced in the menu bar
-    /// after we detect a denial — keeps the auto-flip out of the silent
-    /// poll path while still giving the user a one-click escape hatch.
+    /// after we detect a denial.
     static func persistKeychainDisabled() async {
         await MainActor.run {
             SettingsStore.shared.keychainPolicy = .never

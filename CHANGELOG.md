@@ -11,6 +11,24 @@ Reliability release. Fixes silent regressions caused by upstream wire-format
 drift in both the Codex CLI and the Claude Code CLI, plus a long-standing
 GUI-launch path bug that left spawned `codex` unable to find `node`.
 
+### Added
+- **Delegated Claude OAuth refresh to the `claude` CLI.** When the cached
+  access token is expired (file + Keychain both stale) — or when the
+  server returns 401 — the app now spawns `claude --version` so the CLI
+  performs the OAuth refresh against
+  `platform.claude.com/v1/oauth/token` and writes the rotated credentials
+  back to the Keychain. We then re-read the freshest token. We never
+  refresh in-app: refresh tokens **rotate** server-side, so a split-brain
+  refresh between CodexMonitor and the CLI would silently revoke the
+  loser's token. Single in-flight task coalesces concurrent expiry
+  detections; failed attempts back off 5 min → 1 h to avoid spawn storms.
+- **Multi-item Keychain disambiguation.** `Claude Code-credentials` items
+  are now queried with `kSecMatchLimitAll` and sorted by
+  `kSecAttrModificationDate` desc — the freshest item wins. Fixes a case
+  where dev machines accumulated stale duplicate items (from prior
+  in-app refresh attempts) and the keychain returned the oldest one,
+  producing perma-401s.
+
 ### Fixed
 - **Codex live quota stuck on "Sign in via codex CLI"** even when fully
   signed in. codex CLI ≥ 0.128 silently flipped `account/rateLimits/read`
@@ -53,10 +71,11 @@ GUI-launch path bug that left spawned `codex` unable to find `node`.
 - Build pipeline / DMG layout / signing strategy unchanged from 0.1.0.
 
 ### Test coverage
-- 57 tests (was 37 in 0.1.0). New suites: `RateLimitsDecoderTests`
+- 62 tests (was 37 in 0.1.0). New suites: `RateLimitsDecoderTests`
   (camelCase wire format), `ClaudeUsageDecoderTests` (utilization
   heuristic), `BillingBlocksTests`, `PricingValueBackfillTests`,
-  `SalvageBodyFromErrorMessageTests`.
+  `SalvageBodyFromErrorMessageTests`, `ClaudeOAuthRefreshTests`
+  (URL-protocol-stubbed refresh + write-back + concurrency coalescing).
 
 [0.2.0]: https://github.com/tjzhou/codexmonitor/releases/tag/v0.2.0
 
