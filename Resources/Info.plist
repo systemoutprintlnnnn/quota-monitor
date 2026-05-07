@@ -5,17 +5,17 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>CodexMonitor</string>
+    <string>QuotaMonitor</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.tjzhou.CodexMonitor</string>
+    <string>dev.tjzhou.QuotaMonitor</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>CodexMonitor</string>
+    <string>QuotaMonitor</string>
     <key>CFBundleDisplayName</key>
-    <string>Codex Monitor</string>
+    <string>Quota Monitor</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

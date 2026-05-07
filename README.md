@@ -1,4 +1,9 @@
-# CodexMonitor
+# QuotaMonitor
+
+> **Renamed from CodexMonitor → QuotaMonitor on 2026-05-07.** Bundle ID is now
+> `dev.tjzhou.QuotaMonitor`; first launch under the new binary auto-migrates
+> the legacy SQLite database and UserDefaults. The old
+> `/Applications/CodexMonitor.app` can be removed manually.
 
 A macOS-only Swift menu-bar app for tracking **Codex CLI** and **Claude Code**
 usage — live quota meters, rolling spend, session-level drilldown, and
@@ -11,29 +16,29 @@ respective official APIs.
 
 ## Install
 
-1. Download the latest `CodexMonitor-<version>.dmg` from the
+1. Download the latest `QuotaMonitor-<version>.dmg` from the
    **Releases page** (link will be updated after the first GitHub release is
    tagged).
-2. Open the DMG, drag **CodexMonitor.app** onto the **Applications** alias
+2. Open the DMG, drag **QuotaMonitor.app** onto the **Applications** alias
    shown in the installer window.
 3. **First launch only** — macOS will refuse to open the app directly. Pick
    one:
-   - **Right-click** `CodexMonitor.app` → **Open** → click **Open** again in
+   - **Right-click** `QuotaMonitor.app` → **Open** → click **Open** again in
      the Gatekeeper dialog. (You only need to do this once.)
    - Or, in Terminal:
      ```bash
-     xattr -dr com.apple.quarantine /Applications/CodexMonitor.app
-     open /Applications/CodexMonitor.app
+     xattr -dr com.apple.quarantine /Applications/QuotaMonitor.app
+     open /Applications/QuotaMonitor.app
      ```
 
-> CodexMonitor is **ad-hoc signed** (no Apple Developer ID), so macOS asks
+> QuotaMonitor is **ad-hoc signed** (no Apple Developer ID), so macOS asks
 > for confirmation the first time. Subsequent launches are silent.
 
 Optional integrity check after download:
 
 ```bash
 cd ~/Downloads
-shasum -c CodexMonitor-<version>.dmg.sha256
+shasum -c QuotaMonitor-<version>.dmg.sha256
 ```
 
 ## What it does
@@ -66,7 +71,7 @@ Codex CLI / Anthropic API quirks discovered along the way.
 | Charts | Swift Charts (no third-party) |
 | SQLite | GRDB.swift |
 | Subprocess | `Foundation.Process` + `Pipe` |
-| Logging | OSLog (subsystem `dev.tjzhou.CodexMonitor`) |
+| Logging | OSLog (subsystem `dev.tjzhou.QuotaMonitor`) |
 | Sandbox | **off** — required for `~/.codex` and `~/.claude` access |
 | Distribution | ad-hoc signed `.app`, packaged into DMG (no notarization yet) |
 
@@ -75,12 +80,12 @@ Codex CLI / Anthropic API quirks discovered along the way.
 No Xcode project needed.
 
 ```bash
-./build.sh                  # debug build, assembles .build/CodexMonitor.app + ad-hoc sign
-open .build/CodexMonitor.app
+./build.sh                  # debug build, assembles .build/QuotaMonitor.app + ad-hoc sign
+open .build/QuotaMonitor.app
 
 CONFIG=release ./build.sh   # release build
 
-./tools/make-dmg.sh         # release + dist/CodexMonitor-<ver>.dmg with installer-window layout
+./tools/make-dmg.sh         # release + dist/QuotaMonitor-<ver>.dmg with installer-window layout
 ./tools/release.sh          # full pipeline: tests + release + DMG + sha256 + self-check
 ```
 
@@ -96,9 +101,9 @@ interval / pricing.
 ## Layout
 
 ```
-CodexMonitor/
+QuotaMonitor/
 ├── App/
-│   ├── CodexMonitorApp.swift       // @main + scenes
+│   ├── QuotaMonitorApp.swift       // @main + scenes
 │   ├── AppEnvironment.swift        // @Observable shared state + lifecycle
 │   ├── PricingController.swift     // LiteLLM refresh + per-row edits
 │   ├── ScanController.swift        // file scan + CSV export
@@ -112,12 +117,12 @@ CodexMonitor/
 │   │   ├── AggregatorHistory.swift
 │   │   ├── AggregatorRateLimits.swift
 │   │   └── BillingBlocks.swift     // 5h block algorithm (ported from ccusage)
-│   ├── Claude/                     // OAuth client + poller + decoder + hydrator
+│   ├── Claude/                     // OAuth client + poller + decoder + hydrator + CLI refresh trigger
 │   ├── Importer/                   // jsonl scan + parse + persist
-│   ├── Storage/                    // GRDB schema + DatabaseManager
+│   ├── Storage/                    // GRDB schema + DatabaseManager (auto-migrates legacy CodexMonitor DB)
 │   ├── Pricing/                    // seed catalog + LiteLLM source + value backfill
 │   ├── RateLimits/                 // background poller + UN notifier
-│   ├── Settings/SettingsStore.swift
+│   ├── Settings/                   // SettingsStore + UserDefaultsMigration
 │   ├── Localization/               // L10n.swift + LocalizationStore
 │   ├── Models/                     // domain types
 │   └── Log.swift                   // OSLog categories
@@ -134,7 +139,7 @@ CodexMonitor/
 │   ├── VERSION                     // single source of truth for the release
 │   ├── AppIcon.icns
 │   ├── dmg-background.png          // installer window background
-│   └── CodexMonitor.entitlements
+│   └── QuotaMonitor.entitlements
 └── tools/
     ├── release.sh                  // one-command release pipeline
     ├── make-dmg.sh                 // staged UDRW → AppleScript layout → UDZO
@@ -171,16 +176,20 @@ See `docs/findings.md`. Most important:
 - For accounts on `plan_type: "prolite"`, the CLI returns an error with the
   intact JSON body embedded after `body=`. `AppServerClient.readRateLimits()`
   salvages this transparently.
-- Anthropic's `/api/oauth/usage` is edge-rate-limited; CodexMonitor polls it
+- Anthropic's `/api/oauth/usage` is edge-rate-limited; QuotaMonitor polls it
   on a hard 2-hour cadence with a 429 back-off ladder.
+- Claude OAuth tokens rotate on every refresh. QuotaMonitor never refreshes
+  them itself — when the local token is stale it spawns `claude --version`
+  and lets the CLI write the new credentials to its Keychain item. See
+  `docs/progress.md` Day-26 for the postmortem.
 
 ## Inspecting logs
 
 ```bash
-log stream --predicate 'subsystem == "dev.tjzhou.CodexMonitor"' --level info
+log stream --predicate 'subsystem == "dev.tjzhou.QuotaMonitor"' --level info
 ```
 
-Categories: `appserver`, `importer`, `poller`, `pricing`, `ui`.
+Categories: `appserver`, `importer`, `poller`, `pricing`, `storage`, `ui`.
 
 ## Limitations of v0.1.0
 

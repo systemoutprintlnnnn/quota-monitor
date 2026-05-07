@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build CodexMonitor.app from SwiftPM output.
+# Build QuotaMonitor.app from SwiftPM output.
 # Usage: ./build.sh [debug|release]   (default: debug)
 
 set -euo pipefail
@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 # Config can come from $1 (positional) OR $CONFIG (env). Env wins so callers
 # like make-dmg.sh / release.sh can pipe a value through without juggling args.
 CONFIG="${CONFIG:-${1:-debug}}"
-APP_NAME="CodexMonitor"
+APP_NAME="QuotaMonitor"
 APP_BUNDLE=".build/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
 

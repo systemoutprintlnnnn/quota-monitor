@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wrap .build/CodexMonitor.app into a distributable .dmg with a custom
+# Wrap .build/QuotaMonitor.app into a distributable .dmg with a custom
 # install-window layout (background image + icon positions + /Applications
 # alias). Pure shell + AppleScript — no homebrew dependencies.
 #
@@ -17,7 +17,7 @@
 # The two-stage UDRW→UDZO dance is the canonical way to bake a layout in.
 #
 # Usage:
-#   tools/make-dmg.sh                # release build, dist/CodexMonitor-<ver>.dmg
+#   tools/make-dmg.sh                # release build, dist/QuotaMonitor-<ver>.dmg
 #   CONFIG=debug tools/make-dmg.sh   # debug bundle
 #   VER=0.2.0-rc1 tools/make-dmg.sh  # override version
 
@@ -25,7 +25,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG=${CONFIG:-release}
-APP=".build/CodexMonitor.app"
+APP=".build/QuotaMonitor.app"
 DIST="dist"
 
 # Version: caller may override via VER=..., otherwise read Resources/VERSION.
@@ -44,8 +44,8 @@ else
     exit 1
 fi
 
-NAME="CodexMonitor-${VER}.dmg"
-VOLNAME="Install CodexMonitor"
+NAME="QuotaMonitor-${VER}.dmg"
+VOLNAME="Install QuotaMonitor"
 BG_PATH="Resources/dmg-background.png"
 
 STAGING=$(mktemp -d)
@@ -122,7 +122,7 @@ tell application "Finder"
         -- Coordinates are within the window's CONTENT area (540×380).
         -- App icon left of center, /Applications alias to the right —
         -- aligned with the arrow drawn on the PNG (y ≈ 200 from top).
-        set position of item "CodexMonitor.app" of container window to {140, 200}
+        set position of item "QuotaMonitor.app" of container window to {140, 200}
         set position of item "Applications" of container window to {400, 200}
 
         update without registering applications

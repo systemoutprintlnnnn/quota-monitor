@@ -1,7 +1,7 @@
-# CodexMonitor — 进度跟踪
+# CodexMonitor → QuotaMonitor — 进度跟踪
 
 跨会话持久化的项目进度档案。每次完成一个里程碑就更新本文件。
-最近更新：2026-05-07（Day-26 0.2.0 修复打包 + Claude refresh 委派 CLI）
+最近更新：2026-05-07（Day-27 重命名 CodexMonitor → QuotaMonitor）
 
 ---
 
@@ -35,6 +35,7 @@
 | 24 | Claude OAuth `/api/oauth/usage` 接入（CodexBar 借鉴） | ✅ 已完成 |
 | 25 | 配额行人话化 pace 文案 + Keychain 策略设置 | ✅ 已完成 |
 | 26 | 0.2.0 修复打包 + Claude refresh 委派给 CLI | ✅ 已完成 |
+| 27 | 重命名 CodexMonitor → QuotaMonitor（bundle id + DB + UserDefaults 自动迁移） | ✅ 已完成 |
 
 ---
 
@@ -680,3 +681,53 @@ b) **Refresh token 轮换的本质冲突无解**。Anthropic 的 OAuth 每次 re
 - `CHANGELOG.md` 0.2.0 段落改写了"Added: Delegated Claude refresh to CLI"，删掉旧的"Automatic refresh"。
 - `MEMORY.md`：`Claude OAuth refresh in-app` 改成 `Claude OAuth refresh delegated to CLI`；删掉 `test isolation` 那条；新增 `Keychain duplicate-item disambiguation`；老的 `mirrorTokenToFile` 那条 mark 为 deprecated 的描述。
 - 测试数：57（0.2.0 修复后）→ 62（in-app refresh 阶段）→ 57（删掉 5 测试）→ 61（加回 4 trigger 测试）。
+
+---
+
+## Day-27 — 重命名 CodexMonitor → QuotaMonitor ✅
+
+**触发**：0.2.0 收尾后做了一轮"项目里有什么"的全功能梳理，这名字已经不准了——产品早就同时支持 Codex 和 Claude，叫 Codex Monitor 容易让人以为只看 Codex。试了几轮（TokenMeter / AgentMeter / Folio / TokenBar 等），最后定 **QuotaMonitor**（菜单显示带空格 "Quota Monitor"），bundle id 改成 `dev.tjzhou.QuotaMonitor`。
+
+**改动范围**
+
+代码：
+- `Package.swift` name + target + path + 测试 target 全改名。
+- 10 个 `Tests/.../*Tests.swift` 的 `@testable import CodexMonitor` → `QuotaMonitor`。
+- `App/CodexMonitorApp.swift`：`struct` 改名 + 两个 Scene 的 visible title（"Codex Monitor" → "Quota Monitor"）。**注意 init 顺序**：`@State` 默认表达式在 `init()` body 之前求值，所以把 store 们改成 `_xxx = State(wrappedValue: ...)` 形式，确保 `UserDefaultsMigration.runIfNeeded()` 第一个跑，再让 `LocalizationStore.shared` 等 singleton 去读 UserDefaults。否则迁移就赶不上 trunk。
+- `Core/Log.swift`：subsystem 改 + 顺手加了 `storage` category（DB 迁移的日志走它）。
+- `Core/Storage/DatabaseManager.swift`：默认路径从 `CodexMonitor/codexmonitor.sqlite` 改成 `QuotaMonitor/quotamonitor.sqlite`，新增 `migrateLegacyDatabaseIfNeeded`：先检查新文件是否已存在（幂等闸），不在就把旧的 `.sqlite + -wal + -shm` 三件套依次 `moveItem`，最后试着把空目录删掉。注意顺序——先搬 .sqlite 再搬 wal/shm，万一中途崩了 WAL 留在原地是无害的（没有主 DB 它谁都解读不了）。
+- `Core/Settings/UserDefaultsMigration.swift`（新文件）：用 `CFPreferencesCopyKeyList(legacyBundleID, …)` 列出旧 plist 所有 key，逐个 `CFPreferencesCopyAppValue` 抄到新 domain，前提是新 domain 还没值（不覆盖用户在新版本里手动改过的设置）。一次性 guard key 写在新 domain，下次启动直接 short-circuit。
+- 几个零散字符串：`ScanController` NSError domain、`L10n.settingsTitle`、`MenuBarContentView` 顶部 logo、Onboarding "Welcome to" 双语行、`ClaudeUsageClient` User-Agent header、`LocalizationStore` 注释里的 `defaults delete` 命令示例。
+
+资源 & 脚本：
+- `Resources/Info.plist`：`CFBundleExecutable` / `CFBundleIdentifier` / `CFBundleName` / `CFBundleDisplayName` 全换。
+- `Resources/CodexMonitor.entitlements` → `QuotaMonitor.entitlements`（git mv，注释里的产品名顺手改）。
+- `build.sh` `APP_NAME`、`tools/notarize.sh`（APP_BUNDLE/PROFILE/ENTITLEMENTS 默认值）、`tools/make-dmg.sh`（APP/NAME/VOLNAME + AppleScript 里的 icon 引用）、`tools/make-dmg-bg.swift`（installer 标题文案）、`tools/release.sh`（DMG_PATH/APP_BUNDLE/INSIDE_APP/sha 文件名/release notes title）。
+
+文档：
+- `README.md` 顶部加 rename banner，下面 s/CodexMonitor/QuotaMonitor/g（含 Layout 树里的 `App/QuotaMonitorApp.swift`、`Resources/QuotaMonitor.entitlements`、subsystem、log categories +storage）。
+- `CHANGELOG.md` 顶上加 `[Unreleased]` 段说明改名 + 自动迁移；0.2.0 段保持原样（历史是 CodexMonitor 出厂的）。
+- `docs/parity.md` 表头列名 + entitlements 文件名引用。
+- `docs/progress.md`（本文件）：里程碑表加 Day-27 行；header 改名加箭头。
+- `docs/findings.md` / `docs/project-survey-2026-04-30.md`：作为历史快照不动。
+
+目录：
+- `git mv CodexMonitor QuotaMonitor`、`git mv QuotaMonitor/App/CodexMonitorApp.swift QuotaMonitorApp.swift`、`git mv Tests/CodexMonitorTests Tests/QuotaMonitorTests`、`git mv Resources/CodexMonitor.entitlements Resources/QuotaMonitor.entitlements`。
+- 外层（git 仓之外）：`mv codexmonitor/CodexMonitor codexmonitor/QuotaMonitor` → `mv codexmonitor quotamonitor`。
+
+**踩到的 trap**
+
+- SwiftUI `@State private var foo = X.shared` 的默认值表达式比 `init()` body 早跑。第一次写迁移调用就直接放在 init 里，结果意识到 LocalizationStore singleton 已经被构造了——读到的还是空 plist。改成在 init 里手动 `_foo = State(wrappedValue: ...)` 才对。
+- 旧 `/Applications/CodexMonitor.app` 还在跑（pgrep 显示 PID 43320）。如果不先 pkill 就改 DB 路径，迁移 helper 会去搬一个 SQLite 还在 hold 的 WAL，得到的新文件会 corrupt。pre-flight 第一步必须 kill。
+
+**收益**
+
+- 名字终于和功能匹配，Anthropic + OpenAI 双 provider 不再被 Codex 一家代言。
+- `dev.tjzhou.QuotaMonitor` 是个干净 bundle id，Keychain ACL 清空、UserDefaults 是新 plist——一切起点都是显式的。
+- 顺带加了 `Log.storage` category，DB 操作日志独立一档。
+
+**用户手动收尾（agent 不替代做）**
+
+- `rm -rf /Applications/CodexMonitor.app`（旧装的菜单栏 app，已被 pkill；自动迁移把数据搬走了，删了无害）。
+- 等确认新 app 跑稳后：`defaults delete dev.tjzhou.CodexMonitor`（旧 plist 留着也只是占几 KB）。
+- `cp -R .build/QuotaMonitor.app /Applications/` 把新 app 装回 /Applications。

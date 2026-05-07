@@ -2,7 +2,7 @@
 # ============================================================================
 #  STATUS: SCAFFOLD-ONLY — not used by the current 0.1.x release flow.
 #
-#  CodexMonitor ships ad-hoc-signed today (no Apple Developer account). The
+#  QuotaMonitor ships ad-hoc-signed today (no Apple Developer account). The
 #  active release pipeline is `tools/release.sh` (build → ad-hoc sign → DMG).
 #  This script is intentionally kept in-tree so that the day we DO acquire a
 #  Developer ID Application certificate, we don't have to rediscover the
@@ -12,13 +12,13 @@
 #  without `IDENTITY` set will (correctly) refuse and exit 1.
 # ============================================================================
 #
-# Notarize and staple CodexMonitor.app for Gatekeeper-friendly distribution.
+# Notarize and staple QuotaMonitor.app for Gatekeeper-friendly distribution.
 #
 # Pre-reqs (when reactivating):
 #   1. Apple Developer account with a Developer ID Application certificate
 #      installed in your login keychain.
 #   2. An app-specific password stored in keychain via:
-#        xcrun notarytool store-credentials codexmonitor-notary \
+#        xcrun notarytool store-credentials quotamonitor-notary \
 #          --apple-id you@example.com \
 #          --team-id ABCDE12345 \
 #          --password app-specific-password
@@ -30,16 +30,16 @@
 #
 # Optional env vars:
 #   IDENTITY        codesign identity (default: $DEVELOPER_ID_APPLICATION)
-#   PROFILE         keychain profile name (default: codexmonitor-notary)
-#   APP_BUNDLE      path to .app (default: .build/CodexMonitor.app)
+#   PROFILE         keychain profile name (default: quotamonitor-notary)
+#   APP_BUNDLE      path to .app (default: .build/QuotaMonitor.app)
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_BUNDLE="${APP_BUNDLE:-.build/CodexMonitor.app}"
-PROFILE="${PROFILE:-codexmonitor-notary}"
+APP_BUNDLE="${APP_BUNDLE:-.build/QuotaMonitor.app}"
+PROFILE="${PROFILE:-quotamonitor-notary}"
 IDENTITY="${IDENTITY:-${DEVELOPER_ID_APPLICATION:-}}"
-ENTITLEMENTS="Resources/CodexMonitor.entitlements"
+ENTITLEMENTS="Resources/QuotaMonitor.entitlements"
 
 if [[ -z "${IDENTITY}" ]]; then
     echo "error: set IDENTITY=\"Developer ID Application: ... (TEAMID)\"" >&2

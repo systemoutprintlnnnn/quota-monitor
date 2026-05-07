@@ -43,7 +43,7 @@ if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
     exit 1
 fi
 
-DMG_PATH="dist/CodexMonitor-${VERSION}.dmg"
+DMG_PATH="dist/QuotaMonitor-${VERSION}.dmg"
 SHA_PATH="${DMG_PATH}.sha256"
 
 if [[ -f "${DMG_PATH}" && "${FORCE}" -eq 0 ]]; then
@@ -52,7 +52,7 @@ if [[ -f "${DMG_PATH}" && "${FORCE}" -eq 0 ]]; then
     exit 1
 fi
 
-echo "==> Releasing CodexMonitor v${VERSION}"
+echo "==> Releasing QuotaMonitor v${VERSION}"
 
 # -------- tests -------------------------------------------------------------
 
@@ -64,7 +64,7 @@ swift test
 echo "==> CONFIG=release ./build.sh"
 CONFIG=release ./build.sh
 
-APP_BUNDLE=".build/CodexMonitor.app"
+APP_BUNDLE=".build/QuotaMonitor.app"
 if [[ ! -d "${APP_BUNDLE}" ]]; then
     echo "error: ${APP_BUNDLE} missing after build" >&2
     exit 1
@@ -100,7 +100,7 @@ fi
 # -------- SHA-256 -----------------------------------------------------------
 
 echo "==> shasum -a 256 ${DMG_PATH}"
-( cd dist && shasum -a 256 "CodexMonitor-${VERSION}.dmg" > "CodexMonitor-${VERSION}.dmg.sha256" )
+( cd dist && shasum -a 256 "QuotaMonitor-${VERSION}.dmg" > "QuotaMonitor-${VERSION}.dmg.sha256" )
 echo "    $(cat "${SHA_PATH}")"
 
 # -------- self-check: mount + verify ---------------------------------------
@@ -117,7 +117,7 @@ trap cleanup EXIT
 echo "==> Mounting ${DMG_PATH} for self-check"
 hdiutil attach -nobrowse -readonly -mountpoint "${MOUNT_POINT}" "${DMG_PATH}" >/dev/null
 
-INSIDE_APP="${MOUNT_POINT}/CodexMonitor.app"
+INSIDE_APP="${MOUNT_POINT}/QuotaMonitor.app"
 if [[ ! -d "${INSIDE_APP}" ]]; then
     echo "error: ${INSIDE_APP} missing inside DMG" >&2
     exit 1
@@ -153,7 +153,7 @@ Next steps (manual):
   2. gh release create v${VERSION} \\
         ${DMG_PATH} \\
         ${SHA_PATH} \\
-        --title "CodexMonitor ${VERSION}" \\
+        --title "QuotaMonitor ${VERSION}" \\
         --notes-file CHANGELOG.md   # or hand-pick the v${VERSION} block
 
 Reminder: this is ad-hoc-signed. Users must right-click → Open

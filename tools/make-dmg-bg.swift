@@ -49,7 +49,7 @@ ctx.drawLinearGradient(gradient,
 
 // ---- title text (top) -----------------------------------------------------
 
-let title = "Drag CodexMonitor into your Applications folder"
+let title = "Drag QuotaMonitor into your Applications folder"
 let titleAttrs: [NSAttributedString.Key: Any] = [
     .font: NSFont.systemFont(ofSize: 16, weight: .medium),
     .foregroundColor: NSColor(white: 0.18, alpha: 1.0)

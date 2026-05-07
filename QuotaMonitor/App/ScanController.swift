@@ -1,0 +1,116 @@
+import Foundation
+import GRDB
+
+// File-scan + CSV-export actions extracted from AppEnvironment.
+
+extension AppEnvironment {
+
+    func runScan() {
+        guard !isScanning else { return }
+        isScanning = true
+        lastError = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            defer { Task { @MainActor in self.isScanning = false } }
+            do {
+                let (db, engine) = try self.ensureServices()
+                let claude = self.claudeEngine
+                async let codexReport = engine.performScan()
+                // Run the Claude scan as its own task so the optional-chained
+                // `claude?.performScan()` doesn't interact awkwardly with
+                // `async let` (we hit a case where the call appeared to be
+                // skipped silently).
+                let claudeTask = Task { () async throws -> ImportEngine.ScanReport in
+                    guard let claude else {
+                        return ImportEngine.ScanReport(
+                            scannedFiles: 0, changedFiles: 0,
+                            importedSessions: 0, importedEvents: 0,
+                            importedRateLimitSamples: 0, errors: [])
+                    }
+                    return try await claude.performScan()
+                }
+                let merged = Self.mergeScanReports(try await codexReport, try await claudeTask.value)
+                // Run a final backfill so any Claude rows that landed after the
+                // Codex engine's own backfill still get value_usd computed.
+                try await db.pool.write { try PricingService.backfillAllValues(in: $0) }
+                await MainActor.run { self.lastScanReport = merged }
+                // refreshDashboard() already chains to refreshMenuBar() at
+                // its tail. Calling refreshMenuBar() again here would
+                // cause two near-simultaneous DB reads — wasteful and
+                // occasionally produced flickering KPIs while the second
+                // load raced the first.
+                self.refreshDashboard()
+            } catch {
+                await MainActor.run { self.lastError = String(describing: error) }
+            }
+        }
+    }
+
+    /// Stream all usage_events to a CSV file at `url`.
+    func exportUsageEventsCSV(to url: URL) async throws -> Int {
+        let (db, _) = try ensureServices()
+        return try await db.pool.read { conn in
+            let rows = try Row.fetchCursor(conn, sql: """
+                SELECT ue.id, ue.session_id, ue.timestamp, ue.model_id,
+                       ue.input_tokens, ue.cached_input_tokens, ue.output_tokens,
+                       ue.reasoning_output_tokens, ue.total_tokens, ue.value_usd,
+                       s.title, s.agent_nickname
+                FROM usage_events ue
+                LEFT JOIN sessions s ON s.session_id = ue.session_id
+                ORDER BY ue.timestamp ASC
+                """)
+            let header = "id,session_id,timestamp,model_id,input,cached,output,reasoning,total,value_usd,title,agent\n"
+            guard FileManager.default.createFile(atPath: url.path, contents: header.data(using: .utf8)) else {
+                throw NSError(domain: "QuotaMonitor", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "Could not create file at \(url.path)"])
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            var count = 0
+            while let row = try rows.next() {
+                let line = Self.csvRow([
+                    "\(row["id"] as Int64? ?? 0)",
+                    row["session_id"] as String? ?? "",
+                    row["timestamp"] as String? ?? "",
+                    row["model_id"] as String? ?? "",
+                    "\(row["input_tokens"] as Int64? ?? 0)",
+                    "\(row["cached_input_tokens"] as Int64? ?? 0)",
+                    "\(row["output_tokens"] as Int64? ?? 0)",
+                    "\(row["reasoning_output_tokens"] as Int64? ?? 0)",
+                    "\(row["total_tokens"] as Int64? ?? 0)",
+                    String(format: "%.6f", row["value_usd"] as Double? ?? 0),
+                    row["title"] as String? ?? "",
+                    row["agent_nickname"] as String? ?? ""
+                ])
+                if let data = (line + "\n").data(using: .utf8) {
+                    try handle.write(contentsOf: data)
+                }
+                count += 1
+            }
+            return count
+        }
+    }
+
+    nonisolated static func mergeScanReports(
+        _ a: ImportEngine.ScanReport, _ b: ImportEngine.ScanReport
+    ) -> ImportEngine.ScanReport {
+        ImportEngine.ScanReport(
+            scannedFiles: a.scannedFiles + b.scannedFiles,
+            changedFiles: a.changedFiles + b.changedFiles,
+            importedSessions: a.importedSessions + b.importedSessions,
+            importedEvents: a.importedEvents + b.importedEvents,
+            importedRateLimitSamples: a.importedRateLimitSamples + b.importedRateLimitSamples,
+            errors: a.errors + b.errors)
+    }
+
+    nonisolated static func csvRow(_ fields: [String]) -> String {
+        fields.map { field in
+            if field.contains(",") || field.contains("\"") || field.contains("\n") {
+                return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+            }
+            return field
+        }.joined(separator: ",")
+    }
+}

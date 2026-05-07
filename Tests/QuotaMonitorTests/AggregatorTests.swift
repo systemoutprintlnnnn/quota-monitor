@@ -1,0 +1,218 @@
+import Foundation
+import Testing
+import GRDB
+@testable import QuotaMonitor
+
+/// Regression tests for the Aggregator query layer — the code path that
+/// turns raw `usage_events` rows into the menu-bar `$XXX.XX` headline and
+/// the Dashboard's per-window totals.
+///
+/// Pre-2026-04-30 this had zero coverage. The first time it broke (Day-30
+/// 30d-window timezone bug) the user noticed because the menu bar was off
+/// by 4 hours. These tests pin:
+///
+///   - `fetchPerProviderStats` returns separate codex / claude rollups,
+///     zero-fills missing providers, and computes the 7d + 30d windows
+///     from the SAME timestamp horizon.
+///   - The 30d window is exclusive on the trailing edge: an event at
+///     "now − 31 days" must NOT count, an event at "now − 1 day" must.
+///   - DISTINCT session_id counting (not COUNT(*)) — without this the menu
+///     bar's "149 ses" line over-counts events.
+@Suite("Aggregator queries")
+struct AggregatorTests {
+
+    // MARK: - in-memory DB harness
+
+    /// Build a fresh on-disk SQLite at a temp path so the GRDB pool can
+    /// open it (DatabasePool refuses :memory:). Migrations run as part of
+    /// init.
+    private func makeDatabase() throws -> DatabaseManager {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codexmonitor-tests", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(
+            "agg-\(UUID().uuidString).sqlite")
+        return try DatabaseManager(url: url)
+    }
+
+    /// Insert one session + one usage_event at `daysAgo` (negative ints
+    /// mean past). `valueUSD` is what the Dashboard ultimately surfaces;
+    /// the event's `timestamp` is what windowing predicates filter by.
+    private func seedEvent(
+        in db: DatabaseManager,
+        provider: String,
+        sessionId: String,
+        daysAgo: Double,
+        valueUSD: Double,
+        tokens: Int64 = 1000
+    ) throws {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        let when = Date().addingTimeInterval(-daysAgo * 86400)
+        let stamp = iso.string(from: when)
+
+        try db.pool.write { conn in
+            // INSERT OR IGNORE — reusing a session_id across calls is
+            // intentional (so we can test DISTINCT counting).
+            try conn.execute(sql: """
+                INSERT OR IGNORE INTO sessions
+                (session_id, root_session_id, parent_session_id, title,
+                 source_path, started_at, updated_at, agent_nickname,
+                 agent_role, last_model_id, latest_plan_type,
+                 contains_subagents, created_at, imported_at, provider)
+                VALUES (?, ?, NULL, NULL, NULL, ?, ?, NULL, NULL,
+                        'gpt-5', NULL, 0, ?, ?, ?)
+                """, arguments: [
+                    sessionId, sessionId, stamp, stamp, stamp, stamp, provider
+                ])
+            try conn.execute(sql: """
+                INSERT INTO usage_events
+                (session_id, timestamp, model_id,
+                 input_tokens, cached_input_tokens, output_tokens,
+                 reasoning_output_tokens, total_tokens, value_usd,
+                 provider, cache_creation_tokens, model_inferred)
+                VALUES (?, ?, 'gpt-5', ?, 0, 0, 0, ?, ?, ?, 0, 0)
+                """, arguments: [
+                    sessionId, stamp, tokens, tokens, valueUSD, provider
+                ])
+        }
+    }
+
+    // MARK: - per-provider rollups
+
+    @Test("fetchPerProviderStats: separate codex + claude rollups, missing provider zero-filled")
+    func perProviderStats_zeroFillsAndSplitsByProvider() throws {
+        let db = try makeDatabase()
+        // codex: 2 events in 2 sessions, both within the last 7 days
+        try seedEvent(in: db, provider: "codex", sessionId: "c-1", daysAgo: 1, valueUSD: 4.50)
+        try seedEvent(in: db, provider: "codex", sessionId: "c-2", daysAgo: 5, valueUSD: 3.00)
+        // claude: NOTHING — must still return a row with all zeros so the
+        // menu bar can render "no data yet" rather than crashing on a nil.
+
+        let stats = try db.pool.read { conn in
+            try Aggregator.fetchPerProviderStats(db: conn)
+        }
+        let codex = try #require(stats["codex"])
+        let claude = try #require(stats["claude"])
+
+        #expect(abs(codex.totalValueUSD - 7.50) < 0.0001)
+        #expect(codex.eventCount == 2)
+        #expect(codex.sessionCount == 2)
+        #expect(codex.last7dValueUSD > 0, "both seeded events sit inside the 7d window")
+        #expect(codex.hasData == true)
+
+        #expect(claude.totalValueUSD == 0)
+        #expect(claude.eventCount == 0)
+        #expect(claude.hasData == false,
+                "missing provider must zero-fill, not vanish from the dictionary")
+    }
+
+    @Test("30d window is exclusive on the trailing edge")
+    func thirtyDayWindow_excludesEventAtBoundary() throws {
+        let db = try makeDatabase()
+        // One event JUST inside (29.5 days ago) and one JUST outside
+        // (30.5 days ago). Only the inside one should land in last30d.
+        try seedEvent(in: db, provider: "codex", sessionId: "inside",
+                      daysAgo: 29.5, valueUSD: 1.00)
+        try seedEvent(in: db, provider: "codex", sessionId: "outside",
+                      daysAgo: 30.5, valueUSD: 2.00)
+
+        let stats = try db.pool.read { conn in
+            try Aggregator.fetchPerProviderStats(db: conn)
+        }
+        let codex = try #require(stats["codex"])
+
+        #expect(abs(codex.last30dValueUSD - 1.00) < 0.0001,
+                "30.5d-old event must NOT contribute to last30dValueUSD")
+        #expect(abs(codex.totalValueUSD - 3.00) < 0.0001,
+                "lifetime totals always include both")
+        #expect(codex.last30dSessionCount == 1)
+    }
+
+    @Test("DISTINCT session_id counting (one session, many events → 1, not N)")
+    func sessionCountDistinct_notEventCount() throws {
+        let db = try makeDatabase()
+        // Same session_id used three times.
+        try seedEvent(in: db, provider: "codex", sessionId: "shared",
+                      daysAgo: 1, valueUSD: 1.00)
+        try seedEvent(in: db, provider: "codex", sessionId: "shared",
+                      daysAgo: 2, valueUSD: 1.00)
+        try seedEvent(in: db, provider: "codex", sessionId: "shared",
+                      daysAgo: 3, valueUSD: 1.00)
+
+        let stats = try db.pool.read { conn in
+            try Aggregator.fetchPerProviderStats(db: conn)
+        }
+        let codex = try #require(stats["codex"])
+
+        #expect(codex.eventCount == 3, "raw event count = 3")
+        #expect(codex.sessionCount == 1, "lifetime distinct sessions = 1")
+        #expect(codex.last30dSessionCount == 1,
+                "30d distinct sessions = 1 — without DISTINCT this would be 3")
+    }
+
+    // MARK: - daily / monthly bucketing
+
+    @Test("fetchDaily: zero-fills missing days, oldest first")
+    func fetchDaily_zeroFillsMissingDays() throws {
+        let db = try makeDatabase()
+        try seedEvent(in: db, provider: "codex", sessionId: "today",
+                      daysAgo: 0.1, valueUSD: 5.00)
+        try seedEvent(in: db, provider: "codex", sessionId: "old",
+                      daysAgo: 6.0, valueUSD: 2.00)
+
+        let daily = try db.pool.read { conn in
+            try Aggregator.fetchDaily(db: conn, days: 7)
+        }
+        #expect(daily.count == 7, "must always return exactly `days` buckets")
+        #expect(daily.first?.date ?? .distantFuture < daily.last?.date ?? .distantPast,
+                "must be ordered oldest → newest")
+
+        let totalFromBuckets = daily.reduce(0) { $0 + $1.valueUSD }
+        #expect(abs(totalFromBuckets - 7.00) < 0.0001)
+    }
+
+    // MARK: - 30d composition share
+
+    @Test("fetchProviderShares30d: always emits both providers, zero-fills missing")
+    func providerShares30d_alwaysEmitsBoth() throws {
+        let db = try makeDatabase()
+        // Codex-only data — claude should still appear with $0.
+        try seedEvent(in: db, provider: "codex", sessionId: "x",
+                      daysAgo: 5, valueUSD: 12.34)
+
+        let shares = try db.pool.read { conn in
+            try Aggregator.fetchProviderShares30d(db: conn)
+        }
+        #expect(shares.count == 2)
+        let codex = try #require(shares.first { $0.provider == "codex" })
+        let claude = try #require(shares.first { $0.provider == "claude" })
+        #expect(abs(codex.valueUSD - 12.34) < 0.0001)
+        #expect(claude.valueUSD == 0,
+                "missing provider must zero-fill so the donut layout stays stable")
+    }
+
+    // MARK: - filter clause
+
+    @Test("ProviderFilter clause: codex predicate restricts overview")
+    func providerFilter_restrictsOverview() throws {
+        let db = try makeDatabase()
+        try seedEvent(in: db, provider: "codex", sessionId: "c", daysAgo: 1, valueUSD: 1.00)
+        try seedEvent(in: db, provider: "claude", sessionId: "k", daysAgo: 1, valueUSD: 2.00)
+
+        let codexOnly = try db.pool.read { conn in
+            try Aggregator.fetchOverview(db: conn, provider: .codex)
+        }
+        let claudeOnly = try db.pool.read { conn in
+            try Aggregator.fetchOverview(db: conn, provider: .claude)
+        }
+        let union = try db.pool.read { conn in
+            try Aggregator.fetchOverview(db: conn, provider: .all)
+        }
+
+        #expect(abs(codexOnly.totalValueUSD - 1.00) < 0.0001)
+        #expect(abs(claudeOnly.totalValueUSD - 2.00) < 0.0001)
+        #expect(abs(union.totalValueUSD - 3.00) < 0.0001)
+    }
+}

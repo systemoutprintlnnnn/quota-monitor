@@ -1,9 +1,22 @@
 # Changelog
 
-All notable changes to CodexMonitor are documented here.
+All notable changes to QuotaMonitor (formerly CodexMonitor) are documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+- **Renamed product from CodexMonitor → QuotaMonitor** (display: "Quota Monitor").
+  Bundle ID is now `dev.tjzhou.QuotaMonitor`; OSLog subsystem follows. The
+  app's first launch under the new bundle id auto-migrates the legacy
+  SQLite database (`~/Library/Application Support/CodexMonitor/codexmonitor.sqlite`
+  → `…/QuotaMonitor/quotamonitor.sqlite`, including `-wal` / `-shm` siblings)
+  and copies every key from `defaults read dev.tjzhou.CodexMonitor` into
+  the new domain (idempotent, guarded). The old `/Applications/CodexMonitor.app`
+  install must be removed manually — the rename leaves it intact so the
+  user can roll back if the migration misbehaves.
 
 ## [0.2.0] — 2026-05-06
 

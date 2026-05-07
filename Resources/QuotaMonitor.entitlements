@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements. QuotaMonitor is sandbox-disabled because
+  it reads ~/.codex and ~/.claude outside the sandbox container and shells
+  out to the user-installed `codex` binary.
+
+  We deliberately keep `allow-jit` and `allow-unsigned-executable-memory`
+  off — we don't need either, and asserting `false` documents that.
+
+  `allow-dyld-environment-variables` is the one permissive entitlement we
+  ship: when we spawn `codex`, we must let inherited DYLD_* / Homebrew-
+  managed dyld envs reach the child process so it can find its own
+  dynamic libraries (in particular when the user's `codex` lives under
+  `/opt/homebrew/...`). Without this entitlement, the hardened runtime
+  strips DYLD_* and the child crashes on launch on some setups.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <false/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <false/>
+    <!-- Required so spawned `codex` inherits DYLD_* on Homebrew installs. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- Outbound HTTPS to LiteLLM + Anthropic OAuth + OpenAI app server. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+</dict>
+</plist>
