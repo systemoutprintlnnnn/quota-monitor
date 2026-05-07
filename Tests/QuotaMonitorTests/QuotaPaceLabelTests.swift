@@ -157,7 +157,7 @@ struct QuotaPaceLabelTests {
         let zh = withLanguage(.simplifiedChinese) {
             QuotaPaceLabel.make(usedPercent: 30, paceRatio: 0.61, timeUntilReset: 3600)
         }
-        #expect(zh?.text == "节余 39%")
+        #expect(zh?.text == "慢于节奏 39%")
         #expect(zh?.severity == .good)
     }
 

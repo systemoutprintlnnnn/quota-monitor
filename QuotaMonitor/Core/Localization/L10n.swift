@@ -206,7 +206,7 @@ enum L10n {
           zh: "超出节奏 \(percent)% · 预计 \(eta)后耗尽")
     }
     static func paceReserve(percent: Int) -> String {
-        t(en: "\(percent)% in reserve", zh: "节余 \(percent)%")
+        t(en: "\(percent)% in reserve", zh: "慢于节奏 \(percent)%")
     }
 
     // MARK: - duration units (single-letter, used inline like "2d 14h")
