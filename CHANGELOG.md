@@ -7,6 +7,42 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-05-11
+
+### Fixed
+- **Refresh / scan can no longer freeze the menu bar.** If the Codex
+  `app-server` child wedged (e.g. went unresponsive mid-RPC), the
+  `AppServerClient` actor would block forever on `Process.waitUntilExit()`
+  and every subsequent click on Refresh would queue behind it. The actor
+  now `terminate()`s the child and escalates to `SIGKILL` after 2 s
+  asynchronously, so the request returns instead of stranding the actor.
+- **Spinner can no longer be stuck "on" forever.** `runScan` and
+  `refreshRateLimits` were only flipping their `isScanning` /
+  `isRefreshingRateLimits` flags back to false when the underlying work
+  returned. A hung parser, wedged actor, or stuck GRDB write meant the
+  spinner stayed on and Refresh stayed disabled until the app was
+  quit. Both calls are now wrapped in a hard timeout (5 min for
+  `runScan`, 30 s for `refreshRateLimits`); on timeout the work task is
+  cancelled (best-effort), the error is surfaced, and the UI flag is
+  reset.
+- **Token counts no longer drop the first sample of every session.**
+  `RolloutParser.computeDelta` was treating the first `token_count`
+  event as a baseline and emitting no delta, which silently undercounted
+  every session by its opening turn. It now mirrors codex-pacer's
+  importer: the first sample IS the delta from t=0. Same fix applies on
+  context-reset (post-reset cumulative is emitted as a fresh delta
+  rather than dropped).
+- **Rollout parsing for very large active sessions is ~300× faster.**
+  The line reader's `firstIndex(of: 0x0A)` + `removeSubrange` per-line
+  pattern was O(n²) on the growing buffer. On a 469 MB active rollout,
+  just reading the lines took ~3 min (2.5 MB/s) — dangerously close to
+  the 5-min `runScan` timeout above. The reader now keeps a cursor into
+  the buffer and scans the unread region via a raw pointer. Same file:
+  0.65 s (760 MB/s) for line iteration, 3.7 s for the full
+  parse-and-decode pass.
+
+[0.2.3]: https://github.com/systemoutprintlnnnn/quota-monitor/releases/tag/v0.2.3
+
 ## [0.2.2] — 2026-05-07
 
 ### Fixed
