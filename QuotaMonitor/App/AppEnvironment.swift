@@ -176,7 +176,13 @@ final class AppEnvironment {
             // background poller is the sole caller; manual UI refresh
             // would just produce 429s and a worse user experience.
             do {
-                let payload = try await appServer.readRateLimits()
+                // Hard 30s cap so a hung app-server child or wedged
+                // AppServerClient actor can't strand the spinner forever.
+                let payload = try await Self.withTimeout(
+                    seconds: 30, context: "refreshRateLimits"
+                ) {
+                    try await appServer.readRateLimits()
+                }
                 let snapshot = RateLimitSnapshot(from: payload)
                 await MainActor.run {
                     self.latestRateLimits = snapshot
@@ -258,4 +264,45 @@ final class AppEnvironment {
     func demoteToAccessory() {
         NSApp.setActivationPolicy(.accessory)
     }
+
+    // MARK: - timeout helper
+
+    /// Hard time-bound for long-running async work. Race the operation against
+    /// a sleep; whichever finishes first wins. On timeout we cancel the work
+    /// task (best-effort — synchronous parser loops won't observe cancellation)
+    /// and surface a `BoundedWorkTimeoutError`, so the caller's `defer` can
+    /// reset its `isLoading…` flag and free the UI.
+    ///
+    /// We deliberately do NOT wait for the abandoned work task to finish: it
+    /// is allowed to keep running in the background. The point of the timeout
+    /// is liveness for the UI flag, not preemption of CPU-bound parsing.
+    nonisolated static func withTimeout<R: Sendable>(
+        seconds: Int,
+        context: String,
+        operation: @escaping @Sendable () async throws -> R
+    ) async throws -> R {
+        let workTask = Task<R, Error>(operation: operation)
+        return try await withThrowingTaskGroup(of: R?.self) { group in
+            group.addTask {
+                try await workTask.value
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                workTask.cancel()
+                return nil
+            }
+            defer { group.cancelAll() }
+            for try await result in group {
+                if let r = result { return r }
+                throw BoundedWorkTimeoutError(context: context, seconds: seconds)
+            }
+            throw BoundedWorkTimeoutError(context: context, seconds: seconds)
+        }
+    }
+}
+
+struct BoundedWorkTimeoutError: LocalizedError, Sendable {
+    let context: String
+    let seconds: Int
+    var errorDescription: String? { "\(context) timed out after \(seconds)s" }
 }

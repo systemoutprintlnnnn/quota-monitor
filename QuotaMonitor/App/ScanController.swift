@@ -16,24 +16,35 @@ extension AppEnvironment {
             do {
                 let (db, engine) = try self.ensureServices()
                 let claude = self.claudeEngine
-                async let codexReport = engine.performScan()
-                // Run the Claude scan as its own task so the optional-chained
-                // `claude?.performScan()` doesn't interact awkwardly with
-                // `async let` (we hit a case where the call appeared to be
-                // skipped silently).
-                let claudeTask = Task { () async throws -> ImportEngine.ScanReport in
-                    guard let claude else {
-                        return ImportEngine.ScanReport(
-                            scannedFiles: 0, changedFiles: 0,
-                            importedSessions: 0, importedEvents: 0,
-                            importedRateLimitSamples: 0, errors: [])
+                // Hard 5-minute cap so a runaway parser (e.g. a hundreds-of-MB
+                // rollout from a still-active Codex session) can't strand
+                // `isScanning = true` and freeze the Refresh button forever.
+                // On timeout the underlying work task is cancelled (best-
+                // effort) and we surface the timeout via `lastError`.
+                let merged = try await Self.withTimeout(
+                    seconds: 300, context: "runScan"
+                ) {
+                    async let codexReport = engine.performScan()
+                    // Run the Claude scan as its own task so the optional-
+                    // chained `claude?.performScan()` doesn't interact
+                    // awkwardly with `async let` (we hit a case where the
+                    // call appeared to be skipped silently).
+                    let claudeTask = Task { () async throws -> ImportEngine.ScanReport in
+                        guard let claude else {
+                            return ImportEngine.ScanReport(
+                                scannedFiles: 0, changedFiles: 0,
+                                importedSessions: 0, importedEvents: 0,
+                                importedRateLimitSamples: 0, errors: [])
+                        }
+                        return try await claude.performScan()
                     }
-                    return try await claude.performScan()
+                    let merged = Self.mergeScanReports(
+                        try await codexReport, try await claudeTask.value)
+                    // Final backfill so any Claude rows that landed after the
+                    // Codex engine's own backfill still get value_usd computed.
+                    try await db.pool.write { try PricingService.backfillAllValues(in: $0) }
+                    return merged
                 }
-                let merged = Self.mergeScanReports(try await codexReport, try await claudeTask.value)
-                // Run a final backfill so any Claude rows that landed after the
-                // Codex engine's own backfill still get value_usd computed.
-                try await db.pool.write { try PricingService.backfillAllValues(in: $0) }
                 await MainActor.run { self.lastScanReport = merged }
                 // refreshDashboard() already chains to refreshMenuBar() at
                 // its tail. Calling refreshMenuBar() again here would
