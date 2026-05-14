@@ -10,7 +10,12 @@ import Charts
 struct CompositionSection: View {
     let modelShares30d: [ModelShare]
     let modelSharesPrior30d: [ModelShare]
+    /// Pre-filtered to only include providers the user has enabled.
     let providerShares30d: [ProviderShare]
+    /// Hide the right-hand donut column entirely when only one provider
+    /// is being tracked — a single-slice donut is just visual noise and
+    /// the bar column already conveys all the information.
+    let showProviderDonut: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,7 +30,7 @@ struct CompositionSection: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
+            } else if showProviderDonut {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: 14) {
                         modelBarsColumn
@@ -34,6 +39,19 @@ struct CompositionSection: View {
                     VStack(alignment: .leading, spacing: 14) {
                         modelBarsColumn
                         providerDonutColumn
+                    }
+                }
+            } else {
+                // Single-provider mode — let the model bars take the
+                // full width. Insight sentence gets pulled in here so
+                // the user doesn't lose it when the donut column hides.
+                VStack(alignment: .leading, spacing: 10) {
+                    modelBarsColumn
+                    if let insight = insightText {
+                        Text(insight)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }

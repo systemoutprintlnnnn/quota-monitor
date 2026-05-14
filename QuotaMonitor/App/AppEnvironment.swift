@@ -87,64 +87,132 @@ final class AppEnvironment {
 
     /// Boot the background rate-limit poller. Idempotent.
     func startBackgroundPolling() {
-        guard poller == nil else { return }
         do {
             let (db, _) = try ensureServices()
-
-            // Warm-start: hydrate the last persisted Claude snapshot from
-            // the DB so the UI has something to show before the first
-            // network poll lands. Avoids the "blank + 'unavailable'" first
-            // impression when Anthropic 429s us at boot.
-            Task { [weak self] in
-                if let cached = try? await ClaudeUsageHydrator.loadLatest(database: db) {
-                    await MainActor.run {
-                        guard let self, self.latestClaudeUsage == nil else { return }
-                        self.latestClaudeUsage = cached
-                    }
-                }
+            let enabled = SettingsStore.snapshot().enabledProviders
+            if enabled.contains("codex") {
+                startCodexPoller(database: db)
             }
-
-            let interval = SettingsStore.snapshot().pollIntervalSeconds
-            let p = RateLimitPoller(
-                appServer: appServer,
-                database: db,
-                interval: .seconds(interval)
-            ) { [weak self] snapshot in
-                await MainActor.run {
-                    guard let self else { return }
-                    self.latestRateLimits = snapshot
-                    QuotaNotifier.shared.evaluate(snapshot: snapshot)
-                }
+            if enabled.contains("claude") {
+                startClaudePoller(database: db)
             }
-            self.poller = p
-            Task { await p.start() }
-
-            // Claude OAuth `/usage` poller. Independent lifecycle from the
-            // Codex poller — same transport pattern, but a much slower
-            // cadence: Anthropic edge-rate-limits this endpoint, so we
-            // hit it at most every 2 hours regardless of the user's
-            // Codex polling interval. Manual UI refresh deliberately does
-            // NOT trigger this — see `refreshRateLimits()`.
-            let cp = ClaudeUsagePoller(
-                database: db,
-                interval: .seconds(7200)
-            ) { [weak self] result in
-                await MainActor.run {
-                    guard let self else { return }
-                    switch result {
-                    case .success(let snap):
-                        self.latestClaudeUsage = snap
-                        self.lastClaudeUsageError = nil
-                    case .failure(let err):
-                        self.lastClaudeUsageError = String(describing: err)
-                    }
-                }
-            }
-            self.claudeUsagePoller = cp
-            Task { await cp.start() }
         } catch {
             self.lastError = String(describing: error)
         }
+    }
+
+    /// Boot just the Codex rate-limit poller. Safe to call repeatedly —
+    /// no-op if it's already running.
+    private func startCodexPoller(database db: DatabaseManager) {
+        guard poller == nil else { return }
+        let interval = SettingsStore.snapshot().pollIntervalSeconds
+        let p = RateLimitPoller(
+            appServer: appServer,
+            database: db,
+            interval: .seconds(interval)
+        ) { [weak self] snapshot in
+            await MainActor.run {
+                guard let self else { return }
+                self.latestRateLimits = snapshot
+                QuotaNotifier.shared.evaluate(snapshot: snapshot)
+            }
+        }
+        self.poller = p
+        Task { await p.start() }
+    }
+
+    /// Boot just the Claude OAuth `/usage` poller. Independent lifecycle
+    /// from the Codex poller — same transport pattern, but a much slower
+    /// cadence: Anthropic edge-rate-limits this endpoint, so we hit it at
+    /// most every 2 hours regardless of the user's Codex polling
+    /// interval. Manual UI refresh deliberately does NOT trigger this —
+    /// see `refreshRateLimits()`.
+    private func startClaudePoller(database db: DatabaseManager) {
+        guard claudeUsagePoller == nil else { return }
+        // Warm-start: hydrate the last persisted Claude snapshot from
+        // the DB so the UI has something to show before the first
+        // network poll lands. Avoids the "blank + 'unavailable'" first
+        // impression when Anthropic 429s us at boot.
+        Task { [weak self] in
+            if let cached = try? await ClaudeUsageHydrator.loadLatest(database: db) {
+                await MainActor.run {
+                    guard let self, self.latestClaudeUsage == nil else { return }
+                    self.latestClaudeUsage = cached
+                }
+            }
+        }
+        let cp = ClaudeUsagePoller(
+            database: db,
+            interval: .seconds(7200)
+        ) { [weak self] result in
+            await MainActor.run {
+                guard let self else { return }
+                switch result {
+                case .success(let snap):
+                    self.latestClaudeUsage = snap
+                    self.lastClaudeUsageError = nil
+                case .failure(let err):
+                    self.lastClaudeUsageError = String(describing: err)
+                }
+            }
+        }
+        self.claudeUsagePoller = cp
+        Task { await cp.start() }
+    }
+
+    /// Stop a provider's poller when the user disables it. Clears the
+    /// associated UI state so the dashboard / menu bar can immediately
+    /// reflect "we are no longer tracking this".
+    private func stopCodexPoller() {
+        guard let p = poller else { return }
+        self.poller = nil
+        self.latestRateLimits = nil
+        Task { await p.stop() }
+    }
+
+    private func stopClaudePoller() {
+        guard let cp = claudeUsagePoller else { return }
+        self.claudeUsagePoller = nil
+        self.latestClaudeUsage = nil
+        self.lastClaudeUsageError = nil
+        Task { await cp.stop() }
+    }
+
+    /// React to a change in `SettingsStore.enabledProviders` — start /
+    /// stop the matching pollers, snap the dashboard provider filter
+    /// off any disabled provider, and refresh menu bar + dashboard so
+    /// the UI immediately matches the new set.
+    func applyEnabledProviders() {
+        let enabled = SettingsStore.snapshot().enabledProviders
+        do {
+            let (db, _) = try ensureServices()
+            if enabled.contains("codex") {
+                startCodexPoller(database: db)
+            } else {
+                stopCodexPoller()
+            }
+            if enabled.contains("claude") {
+                startClaudePoller(database: db)
+            } else {
+                stopClaudePoller()
+            }
+        } catch {
+            self.lastError = String(describing: error)
+        }
+        // Snap the toolbar filter off a disabled provider. We never
+        // synthesize a single-provider filter — the union view (`.all`)
+        // is always a valid fallback even when only one provider is
+        // active (it just renders the one that's left).
+        if !enabled.contains(providerFilter.rawValue),
+           providerFilter != .all {
+            providerFilter = .all  // didSet refreshes dashboard
+        } else {
+            // didSet on providerFilter would have done this for us in
+            // the snap branch; in the no-snap branch we still need to
+            // re-render because composition / forecast filtering changed.
+            refreshDashboard()
+        }
+        refreshMenuBar()
     }
 
     /// Apply runtime-mutable settings without restarting the app.
@@ -165,6 +233,11 @@ final class AppEnvironment {
 
     func refreshRateLimits() {
         guard !isRefreshingRateLimits else { return }
+        // The Refresh button is hidden when Codex is disabled, but a
+        // stale binding (e.g. user disabled Codex while a refresh was
+        // in flight) could still call this — guard so we don't spawn a
+        // child app-server process the user has explicitly opted out of.
+        guard SettingsStore.snapshot().enabledProviders.contains("codex") else { return }
         isRefreshingRateLimits = true
         lastError = nil
 

@@ -93,6 +93,13 @@ struct AdvancedSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(L10n.mirrorClaudeCredsLabel,
+                       isOn: $settings.mirrorClaudeKeychainToFile)
+                Text(L10n.mirrorClaudeCredsHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section(L10n.sectionDatabase) {

@@ -24,10 +24,20 @@ struct MenuBarContentView: View {
             // bottom without bouncing between Codex / Claude data spread
             // across 5 separate cards (the prior layout). Section colors
             // (blue / orange) match the Dashboard provider filter chips.
+            //
+            // Disabled providers are omitted entirely — no card, no
+            // placeholder. The Settings → General "Tracked tools"
+            // section is the user's escape hatch if they want them
+            // back. We only show the loading spinner while we have
+            // *some* provider enabled but no snapshot yet.
             if let snap = env.menuBarSnapshot {
-                codexProviderBlock(stats: snap.codex)
-                claudeProviderBlock(stats: snap.claude,
-                                    blocks: snap.anthropicBlocks)
+                if settings.enabledProviders.contains("codex") {
+                    codexProviderBlock(stats: snap.codex)
+                }
+                if settings.enabledProviders.contains("claude") {
+                    claudeProviderBlock(stats: snap.claude,
+                                        blocks: snap.anthropicBlocks)
+                }
             } else {
                 ProgressView(L10n.loading)
                     .frame(maxWidth: .infinity, alignment: .center)

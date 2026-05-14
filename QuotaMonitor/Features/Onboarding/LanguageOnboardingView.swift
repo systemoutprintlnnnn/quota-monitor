@@ -1,27 +1,53 @@
 import SwiftUI
 
-/// First-launch language picker. Shown as a modal sheet over whatever
-/// view first appears (today: the menu bar popover; if the user opens
-/// the dashboard window first, that one).
+/// First-launch onboarding sheet. Two steps:
+///   1. **Language** — pick the UI language. Self-readable: both buttons
+///      display in the language they would activate.
+///   2. **Tools** — pick which CLIs to track. Defaults to all known
+///      providers ON; user can untick the ones they don't use.
 ///
 /// **Why a sheet, not a full-screen dialog.** The menu bar popover is
 /// only 360pt wide and `.sheet` works inside it. A full window would
 /// fight `MenuBarExtra(.window)`'s auto-dismiss-on-outside-click.
 ///
-/// **Hard requirement: cannot be dismissed without picking.** No close
-/// button, no escape, the only way out is one of the two language
-/// buttons. We intentionally pin `isPresented = needsOnboarding` and
-/// don't expose a setter for the user to close it some other way.
+/// **Hard requirement: cannot be dismissed without finishing both
+/// steps.** No close button, no escape — `isPresented` is bound to
+/// `needsOnboarding || needsProviderOnboarding`, so the sheet only
+/// vanishes when both are satisfied.
 ///
-/// **Self-readability.** Both buttons display their label in the
-/// language they would activate, so a user who can't read the current
-/// UI language can still find their language. The headline is rendered
-/// in BOTH languages for the same reason — there's no "before-onboarding
-/// neutral language" so we just show both.
-struct LanguageOnboardingView: View {
+/// **Existing-installation upgrade path.** `SettingsStore.init` sets
+/// `hasCompletedProviderOnboarding = true` whenever any prior settings
+/// key exists, so users who already had the app installed never see
+/// the new step.
+struct OnboardingView: View {
     @Environment(LocalizationStore.self) private var loc
+    @Environment(SettingsStore.self) private var settings
+    @Environment(AppEnvironment.self) private var env
+
+    /// `language` while the user hasn't picked a language yet, then
+    /// auto-advances to `providers` if there's a remaining step. The
+    /// view's `body` re-derives the step on each render so existing
+    /// users (already-set language, missing providers flag) jump
+    /// straight to step 2.
+    private var step: Step {
+        loc.needsOnboarding ? .language : .providers
+    }
 
     var body: some View {
+        Group {
+            switch step {
+            case .language: languageStep
+            case .providers: providerStep
+            }
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
+    // MARK: - language step
+
+    @ViewBuilder
+    private var languageStep: some View {
         VStack(spacing: 20) {
             VStack(spacing: 6) {
                 Image(systemName: "globe")
@@ -67,7 +93,69 @@ struct LanguageOnboardingView: View {
             }
             .padding(.horizontal, 8)
         }
-        .padding(20)
-        .frame(width: 320)
     }
+
+    // MARK: - provider step
+
+    /// Local working copy of the picked set. We don't mutate
+    /// `SettingsStore.enabledProviders` until the user clicks Continue
+    /// — that way the live UI (menu bar + dashboard) doesn't flicker
+    /// as they tick boxes.
+    @State private var pickedCodex = true
+    @State private var pickedClaude = true
+
+    @ViewBuilder
+    private var providerStep: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 6) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.tint)
+                Text(L10n.onboardingProvidersHeadline)
+                    .font(.title3.weight(.semibold))
+            }
+            .padding(.top, 12)
+
+            Text(L10n.onboardingProvidersSubhead)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 10) {
+                Toggle(isOn: $pickedCodex) {
+                    Label("Codex", systemImage: "terminal")
+                }
+                .toggleStyle(.switch)
+                Toggle(isOn: $pickedClaude) {
+                    Label("Claude Code", systemImage: "sparkles")
+                }
+                .toggleStyle(.switch)
+            }
+            .padding(.horizontal, 8)
+
+            // The Continue button stays disabled until at least one
+            // toggle is on. The implicit "you can't track nothing"
+            // constraint matches the runtime invariant in
+            // SettingsStore.setProviderEnabled — keeping the rule in
+            // one mental place.
+            Button {
+                var picked = Set<String>()
+                if pickedCodex { picked.insert("codex") }
+                if pickedClaude { picked.insert("claude") }
+                settings.replaceEnabledProviders(picked)
+                settings.markProviderOnboardingDone()
+                env.applyEnabledProviders()
+            } label: {
+                Text(L10n.onboardingContinue)
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .disabled(!pickedCodex && !pickedClaude)
+            .padding(.horizontal, 8)
+        }
+    }
+
+    private enum Step { case language, providers }
 }

@@ -320,10 +320,19 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
     /// handling. Sets `keychainBlocked` on user denial / no-such-item so
     /// we don't keep re-prompting in the same process.
     private func readKeychainCredsIfAllowed() -> StoredCredentials? {
-        let policy = SettingsStore.snapshot().keychainPolicy
-        guard policy != .never, !keychainBlocked else { return nil }
+        let snap = SettingsStore.snapshot()
+        guard snap.keychainPolicy != .never, !keychainBlocked else { return nil }
         switch Self.readKeychainTokenOutcome() {
         case .ok(_, let raw):
+            // Mirror to disk if the user has explicitly opted in. This
+            // turns the next-launch behaviour from "Keychain prompt"
+            // into "silent file read", because the file is read first
+            // and only falls through to Keychain when the file is
+            // missing/stale. Why opt-in: see
+            // `SettingsStore.mirrorClaudeKeychainToFile` doc.
+            if snap.mirrorClaudeKeychainToFile {
+                Self.writeStoredCredentialsFile(jsonData: raw)
+            }
             return Self.parseCredentials(jsonData: raw)
         case .denied, .interactionNotAllowed, .notFound:
             keychainBlocked = true
@@ -348,6 +357,59 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
             return nil
         }
         return parseCredentials(jsonData: data)
+    }
+
+    /// Mirror a Keychain-sourced credentials blob to
+    /// `~/.claude/.credentials.json`. Opt-in via
+    /// `SettingsStore.mirrorClaudeKeychainToFile` (default OFF) — see
+    /// the setting's doc for the security rationale.
+    ///
+    /// Implementation notes:
+    ///   - Writes to a temporary sibling then `rename(2)`s into place
+    ///     so a crash mid-write can never leave a half-written file.
+    ///   - Permissions clamp to 0600 (owner-only). The CLI uses the
+    ///     same mode so we're not weakening any guarantee that was
+    ///     already there.
+    ///   - If the destination file already contains a *fresher* token
+    ///     (greater `expiresAtMs`) we leave it alone — this catches
+    ///     the rare case where the CLI just refreshed and we're
+    ///     about to overwrite with a stale Keychain copy.
+    ///   - Errors are logged but never thrown; the caller's bearer
+    ///     token is unaffected if the mirror fails.
+    static func writeStoredCredentialsFile(jsonData: Data) {
+        guard let new = parseCredentials(jsonData: jsonData) else { return }
+        let path = credentialsFilePath()
+        let url = URL(fileURLWithPath: path)
+        // Don't overwrite a fresher file the CLI may have just written.
+        if let existing = readStoredCredentialsFile(),
+           let exMs = existing.expiresAtMs,
+           let newMs = new.expiresAtMs,
+           exMs > newMs {
+            return
+        }
+        do {
+            // Make sure the parent dir exists. Claude Code creates
+            // `~/.claude/` on first login but a fresh dev box that's
+            // never run the CLI won't have it.
+            let dir = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: dir, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            // Atomic write via NSData's `.atomic` option (writes to a
+            // tempfile then renames). Then chmod down — `.atomic`
+            // doesn't take attribute hints so we set 0600 in a second
+            // step. The two-step window is fine because the rename
+            // result inherits umask, which on macOS dev boxes is
+            // already 0022 → 0644 worst case before chmod runs.
+            try jsonData.write(to: url, options: [.atomic])
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: path)
+            Log.poller.info(
+                "mirrored Claude credentials to \(path, privacy: .public) (expires \(new.expiresAtMs ?? 0, privacy: .public)ms)")
+        } catch {
+            Log.poller.error(
+                "failed to mirror Claude credentials to disk: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Returns true when the stored credentials are within 60s of expiry

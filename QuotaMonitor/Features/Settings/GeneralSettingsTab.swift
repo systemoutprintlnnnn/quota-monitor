@@ -60,6 +60,47 @@ struct GeneralSettingsTab: View {
                 Text(L10n.menuBarHeadlineWindowHelp)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                // Which provider's 5h/7d quota fills the menu-bar slot.
+                // We hide the picker when only one provider is enabled
+                // because there's nothing to choose — the icon will
+                // automatically follow whichever one is on (the snap
+                // logic in SettingsStore guarantees that).
+                if settings.enabledProviders.count > 1 {
+                    LabeledContent(L10n.menuBarIconProviderLabel) {
+                        Picker("", selection: $settings.menuBarIconProvider) {
+                            ForEach(SettingsStore.MenuBarIconProvider.allCases) { p in
+                                Text(p.label).tag(p)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 220, alignment: .trailing)
+                    }
+                    Text(L10n.menuBarIconProviderHelp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Tracked tools — let users hide a CLI they don't have
+            // installed. Toggling stops the matching background poller
+            // (no more spurious 429s / "codex CLI not found" errors)
+            // and removes the provider's cards from the menu bar +
+            // dashboard. The "at least one" rule is enforced by
+            // `SettingsStore.setProviderEnabled` returning false; the
+            // toggle binding swallows that and stays visually ON.
+            Section(L10n.sectionTrackedTools) {
+                providerToggle(id: "codex", label: L10n.codex)
+                providerToggle(id: "claude", label: L10n.claudeCode)
+                Text(L10n.trackedToolsHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if settings.enabledProviders.count == 1 {
+                    Text(L10n.trackedToolsKeepOne)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Notifications — single knob "ping me when usage hits X%".
@@ -81,5 +122,22 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .padding(20)
+    }
+
+    @ViewBuilder
+    private func providerToggle(id: String, label: String) -> some View {
+        let isOn = settings.enabledProviders.contains(id)
+        Toggle(label, isOn: Binding(
+            get: { isOn },
+            set: { wantOn in
+                guard settings.setProviderEnabled(id, enabled: wantOn) else {
+                    // Blocked by the "at least one" constraint. Don't
+                    // mutate; the help text under the section explains
+                    // why the click had no effect.
+                    return
+                }
+                env.applyEnabledProviders()
+            }
+        ))
     }
 }

@@ -12,6 +12,19 @@ struct ForecastSection: View {
     let blocks: BillingBlocks.Snapshot?
     let claudeUsage: ClaudeUsageSnapshot?
     let providerFilter: ProviderFilter
+    /// Providers the user has enabled in Settings. We render a card
+    /// only when both the toolbar filter allows it AND the user
+    /// hasn't disabled it. Disabled = no card, no placeholder, no
+    /// "data unavailable" — the user opted out, so silence is the
+    /// honest answer.
+    let enabledProviders: Set<String>
+
+    private var showCodex: Bool {
+        providerFilter != .claude && enabledProviders.contains("codex")
+    }
+    private var showClaude: Bool {
+        providerFilter != .codex && enabledProviders.contains("claude")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -24,12 +37,12 @@ struct ForecastSection: View {
             // Two cards side-by-side on wide windows; stack when narrow.
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 14) {
-                    if providerFilter != .claude { codexCard }
-                    if providerFilter != .codex  { claudeCard }
+                    if showCodex { codexCard }
+                    if showClaude { claudeCard }
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    if providerFilter != .claude { codexCard }
-                    if providerFilter != .codex  { claudeCard }
+                    if showCodex { codexCard }
+                    if showClaude { claudeCard }
                 }
             }
         }

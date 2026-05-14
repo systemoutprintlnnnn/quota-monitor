@@ -32,7 +32,12 @@ struct QuotaMonitorApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Quota Monitor", systemImage: "gauge.with.dots.needle.50percent") {
+        // Label-content MenuBarExtra so we can render a custom view in
+        // the menu bar slot itself — `MenuBarLabelView` shows live
+        // 5h/7d usage % for the user-chosen provider, falling back to
+        // the same gauge SF Symbol the app shipped with when there's
+        // no usable data.
+        MenuBarExtra {
             MenuBarContentView()
                 .environment(environment)
                 .environment(localization)
@@ -43,9 +48,13 @@ struct QuotaMonitorApp: App {
                 // explicitly read `tickForceRedraw` to register a
                 // dependency.
                 .id(localization.tickForceRedraw)
-                .sheet(isPresented: .constant(localization.needsOnboarding)) {
-                    LanguageOnboardingView()
+                .sheet(isPresented: .constant(
+                    localization.needsOnboarding || settings.needsProviderOnboarding
+                )) {
+                    OnboardingView()
                         .environment(localization)
+                        .environment(settings)
+                        .environment(environment)
                 }
                 .task {
                     environment.refreshRateLimits()
@@ -53,6 +62,10 @@ struct QuotaMonitorApp: App {
                     environment.refreshMenuBar()
                     environment.startBackgroundPolling()
                 }
+        } label: {
+            MenuBarLabelView()
+                .environment(environment)
+                .environment(settings)
         }
         .menuBarExtraStyle(.window)
 

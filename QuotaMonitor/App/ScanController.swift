@@ -16,6 +16,7 @@ extension AppEnvironment {
             do {
                 let (db, engine) = try self.ensureServices()
                 let claude = self.claudeEngine
+                let enabled = SettingsStore.snapshot().enabledProviders
                 // Hard 5-minute cap so a runaway parser (e.g. a hundreds-of-MB
                 // rollout from a still-active Codex session) can't strand
                 // `isScanning = true` and freeze the Refresh button forever.
@@ -24,17 +25,20 @@ extension AppEnvironment {
                 let merged = try await Self.withTimeout(
                     seconds: 300, context: "runScan"
                 ) {
-                    async let codexReport = engine.performScan()
+                    // Skip per-provider engines when the user has disabled
+                    // them in Settings. Returning `.empty` keeps the merge +
+                    // backfill logic below identical regardless of which
+                    // providers are active.
+                    async let codexReport = enabled.contains("codex")
+                        ? engine.performScan()
+                        : ImportEngine.ScanReport.empty
                     // Run the Claude scan as its own task so the optional-
                     // chained `claude?.performScan()` doesn't interact
                     // awkwardly with `async let` (we hit a case where the
                     // call appeared to be skipped silently).
                     let claudeTask = Task { () async throws -> ImportEngine.ScanReport in
-                        guard let claude else {
-                            return ImportEngine.ScanReport(
-                                scannedFiles: 0, changedFiles: 0,
-                                importedSessions: 0, importedEvents: 0,
-                                importedRateLimitSamples: 0, errors: [])
+                        guard enabled.contains("claude"), let claude else {
+                            return .empty
                         }
                         return try await claude.performScan()
                     }

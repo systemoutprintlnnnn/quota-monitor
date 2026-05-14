@@ -543,6 +543,56 @@ enum L10n {
         t(en: "Export failed: \(err)", zh: "导出失败：\(err)")
     }
 
+    // MARK: - settings · tracked tools
+
+    static var sectionTrackedTools: String {
+        t(en: "Tracked tools", zh: "已跟踪的工具")
+    }
+    /// Help text under the Codex/Claude toggle pair. Frames the choice
+    /// in terms of the practical outcome (no API errors, smaller UI)
+    /// rather than just "what the toggle does", because the latter is
+    /// already obvious from the label.
+    static var trackedToolsHelp: String {
+        t(en: "Turn off the tools you don't use. The matching cards and background polling will stop.",
+          zh: "关闭你不使用的工具。对应的卡片和后台轮询都会停止。")
+    }
+    static var trackedToolsKeepOne: String {
+        t(en: "At least one tool must stay enabled.",
+          zh: "至少需要保留一个工具启用。")
+    }
+
+    // MARK: - onboarding
+
+    static var onboardingProvidersHeadline: String {
+        t(en: "Pick the tools you use", zh: "选择你使用的工具")
+    }
+    static var onboardingProvidersSubhead: String {
+        t(en: "We'll only track the ones you enable. You can change this later in Settings.",
+          zh: "我们只会跟踪你启用的工具。稍后可在设置中更改。")
+    }
+    static var onboardingContinue: String { t(en: "Continue", zh: "继续") }
+
+    // MARK: - settings · menu bar icon
+
+    static var menuBarIconProviderLabel: String {
+        t(en: "Icon shows", zh: "图标显示")
+    }
+    static var menuBarIconProviderHelp: String {
+        t(en: "Pick which tool's 5h and 7d usage fill the menu-bar icon. Falls back to a gauge symbol when there's no data.",
+          zh: "选择哪个工具的 5 小时与 7 日使用率显示在菜单栏图标上。无数据时回退为表盘图标。")
+    }
+
+    // MARK: - settings · advanced · claude credentials mirror
+
+    static var mirrorClaudeCredsLabel: String {
+        t(en: "Cache Claude credentials to disk",
+          zh: "将 Claude 凭据缓存到磁盘")
+    }
+    static var mirrorClaudeCredsHelp: String {
+        t(en: "After a successful Keychain read, write a copy to ~/.claude/.credentials.json (mode 0600). Stops macOS from re-prompting for the Keychain on every rebuild, but moves the token from a per-app Keychain item to a plain file readable by anything running as you. Off by default.",
+          zh: "成功从钥匙串读取后，写一份副本到 ~/.claude/.credentials.json（权限 0600）。可以避免每次重新构建后 macOS 都弹出钥匙串提示，但代价是把 token 从仅本应用可读的钥匙串项搬到一个以你身份可读的普通文件。默认关闭。")
+    }
+
     // MARK: - private
     private static func t(en: String, zh: String) -> String {
         switch LocalizationStore.activeLanguage {

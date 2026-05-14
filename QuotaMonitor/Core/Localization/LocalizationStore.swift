@@ -17,7 +17,7 @@ import os
 /// not re-render because `L10n.foo` is a static read SwiftUI can't track.
 ///
 /// **Persistence.** UserDefaults `app.language` ("en" / "zh-Hans"). On
-/// first launch the field is nil and `LanguageOnboardingView` forces
+/// first launch the field is nil and `OnboardingView` forces
 /// the user to pick before they see the rest of the app.
 ///
 /// **Concurrency.** `LocalizationStore` is `@MainActor` because the

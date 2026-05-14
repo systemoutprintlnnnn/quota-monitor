@@ -21,6 +21,11 @@ actor ImportEngine {
         let importedEvents: Int
         let importedRateLimitSamples: Int
         let errors: [String]
+
+        static let empty = ScanReport(
+            scannedFiles: 0, changedFiles: 0,
+            importedSessions: 0, importedEvents: 0,
+            importedRateLimitSamples: 0, errors: [])
     }
 
     init(database: DatabaseManager, codexHome: URL = SessionScanner.defaultCodexHome()) {

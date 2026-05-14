@@ -25,13 +25,16 @@ struct DashboardView: View {
                         snapshot: snapshot,
                         blocks: env.billingBlocks,
                         claudeUsage: env.latestClaudeUsage,
-                        providerFilter: env.providerFilter)
+                        providerFilter: env.providerFilter,
+                        enabledProviders: settings.enabledProviders)
                     TrendsSection(
                         dailyExtended: snapshot.dailyExtended)
                     CompositionSection(
                         modelShares30d: snapshot.modelShares30d,
                         modelSharesPrior30d: snapshot.modelSharesPrior30d,
-                        providerShares30d: snapshot.providerShares30d)
+                        providerShares30d: snapshot.providerShares30d
+                            .filter { settings.enabledProviders.contains($0.provider) },
+                        showProviderDonut: settings.enabledProviders.count > 1)
                 } else {
                     emptyState
                 }
@@ -75,11 +78,19 @@ struct DashboardView: View {
         let usdSum: Double
         let tokensSum: Int64
         let sessionsSum: Int
+        // The provider filter narrows first; the enabled set then
+        // gates the `.all` arm so a disabled provider can't still leak
+        // into the rolling sum (it can't anyway since the poller is
+        // off, but we belt-and-brace the math because the snapshot
+        // can outlive a freshly-disabled provider for a few seconds).
+        let enabled = settings.enabledProviders
         switch env.providerFilter {
         case .all:
-            usdSum      = usd(codex)      + usd(claude)
-            tokensSum   = tokens(codex)   + tokens(claude)
-            sessionsSum = sessions(codex) + sessions(claude)
+            let codexEnabled = enabled.contains("codex")
+            let claudeEnabled = enabled.contains("claude")
+            usdSum      = (codexEnabled ? usd(codex) : 0) + (claudeEnabled ? usd(claude) : 0)
+            tokensSum   = (codexEnabled ? tokens(codex) : 0) + (claudeEnabled ? tokens(claude) : 0)
+            sessionsSum = (codexEnabled ? sessions(codex) : 0) + (claudeEnabled ? sessions(claude) : 0)
         case .codex:
             usdSum      = usd(codex)
             tokensSum   = tokens(codex)
