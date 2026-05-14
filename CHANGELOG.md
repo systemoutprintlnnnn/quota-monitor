@@ -7,6 +7,31 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-05-13
+
+### Changed
+- **Onboarding moved to a standalone window.** First-launch language +
+  provider picks used to render as a sheet attached to the menu-bar
+  popover, which made the modal feel cramped if the user opened the
+  status item before finishing it. The flow now lives in a centered
+  Window scene of its own.
+
+### Performance
+- **BillingBlocks no longer scans every Claude usage_event** on each
+  menu-bar refresh. The 5h-window aggregator now pushes a
+  `WHERE timestamp >= now - (recentDays + 1) days` filter into SQL,
+  so the Swift side only sees rows it might actually use.
+- **Cached process-wide ISO8601 formatters.** Constructing
+  `ISO8601DateFormatter()` allocates a CFLocale + CFCalendar +
+  CFDateFormatter each time. We were doing this per usage event
+  during scans, per row during CSV export, and per redraw for some
+  list views; everything now goes through a shared
+  `ISO8601.fractional` / `.plain` singleton.
+- **Dropped a duplicate `PricingService.backfillAllValues`** at the
+  tail of the Codex import pass. ScanController already runs it once
+  per scan after both engines finish, and now skips it entirely when
+  no files changed.
+
 ## [0.2.4] — 2026-05-14
 
 ### Added
