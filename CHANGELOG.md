@@ -7,6 +7,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-05-14
+
 ### Fixed
 - **Manual Refresh now also pulls a fresh Claude `/usage` snapshot.**
   Previously the menu-bar Refresh button only re-scanned local JSONL
