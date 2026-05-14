@@ -19,13 +19,21 @@ final class AppEnvironment {
 
     var latestRateLimits: RateLimitSnapshot?
     /// Live Anthropic OAuth `/api/oauth/usage` snapshot, polled every
-    /// 5 min by `ClaudeUsagePoller`. Mirrors `latestRateLimits` so the
-    /// menu bar can render Codex + Claude blocks symmetrically.
+    /// 2 h by `ClaudeUsagePoller` and on-demand by the Refresh button
+    /// (subject to the poller's own 60 s spam gap + 429 cooldown).
+    /// Mirrors `latestRateLimits` so the menu bar can render Codex +
+    /// Claude blocks symmetrically.
     var latestClaudeUsage: ClaudeUsageSnapshot?
     /// Last error from the Claude poller, surfaced in the menu bar so the
     /// user can see *why* their Claude block is empty (no creds, expired
     /// token, scope problem). Cleared on the next successful poll.
     var lastClaudeUsageError: String?
+    /// When non-nil and in the future, the Claude `/usage` endpoint is
+    /// in a 429 cooldown — manual Refresh clicks are silently dropped
+    /// until this time elapses. The menu bar reads this to render an
+    /// inline "limited, retry in X" notice so the user understands why
+    /// the button looks unresponsive.
+    var latestClaudeUsageCooldownUntil: Date?
     var lastScanReport: ImportEngine.ScanReport?
     var dashboardSnapshot: DashboardSnapshot?
     var billingBlocks: BillingBlocks.Snapshot?
@@ -123,10 +131,11 @@ final class AppEnvironment {
 
     /// Boot just the Claude OAuth `/usage` poller. Independent lifecycle
     /// from the Codex poller — same transport pattern, but a much slower
-    /// cadence: Anthropic edge-rate-limits this endpoint, so we hit it at
-    /// most every 2 hours regardless of the user's Codex polling
-    /// interval. Manual UI refresh deliberately does NOT trigger this —
-    /// see `refreshRateLimits()`.
+    /// cadence: Anthropic edge-rate-limits this endpoint, so we hit it
+    /// at most every 2 hours on the scheduled path. The menu-bar
+    /// Refresh button calls `pollOnce()` via `refreshClaudeUsage()`
+    /// too; the poller's own 60 s spam gap + 429 cooldown keep that
+    /// safe.
     private func startClaudePoller(database db: DatabaseManager) {
         guard claudeUsagePoller == nil else { return }
         // Warm-start: hydrate the last persisted Claude snapshot from
@@ -143,19 +152,25 @@ final class AppEnvironment {
         }
         let cp = ClaudeUsagePoller(
             database: db,
-            interval: .seconds(7200)
-        ) { [weak self] result in
-            await MainActor.run {
-                guard let self else { return }
-                switch result {
-                case .success(let snap):
-                    self.latestClaudeUsage = snap
-                    self.lastClaudeUsageError = nil
-                case .failure(let err):
-                    self.lastClaudeUsageError = String(describing: err)
+            interval: .seconds(7200),
+            onSnapshot: { [weak self] result in
+                await MainActor.run {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let snap):
+                        self.latestClaudeUsage = snap
+                        self.lastClaudeUsageError = nil
+                    case .failure(let err):
+                        self.lastClaudeUsageError = String(describing: err)
+                    }
+                }
+            },
+            onCooldownChange: { [weak self] until in
+                await MainActor.run {
+                    self?.latestClaudeUsageCooldownUntil = until
                 }
             }
-        }
+        )
         self.claudeUsagePoller = cp
         Task { await cp.start() }
     }
@@ -175,6 +190,7 @@ final class AppEnvironment {
         self.claudeUsagePoller = nil
         self.latestClaudeUsage = nil
         self.lastClaudeUsageError = nil
+        self.latestClaudeUsageCooldownUntil = nil
         Task { await cp.stop() }
     }
 
@@ -243,11 +259,11 @@ final class AppEnvironment {
 
         Task { [appServer] in
             defer { Task { @MainActor in self.isRefreshingRateLimits = false } }
-            // Codex side only. Claude `/usage` is intentionally NOT
-            // refreshed here — Anthropic edge-rate-limits the endpoint,
-            // and a 5-min poll cadence already trips it. The 2-hour
-            // background poller is the sole caller; manual UI refresh
-            // would just produce 429s and a worse user experience.
+            // Codex side only. Claude `/usage` is fetched separately
+            // via `refreshClaudeUsage()` — same Refresh button, but
+            // routed through the Claude poller's own 60 s spam gap and
+            // 429 cooldown so we can't earn rate-limit replies by
+            // double-clicking.
             do {
                 // Hard 30s cap so a hung app-server child or wedged
                 // AppServerClient actor can't strand the spinner forever.
@@ -265,6 +281,17 @@ final class AppEnvironment {
                 await MainActor.run { self.lastError = String(describing: error) }
             }
         }
+    }
+
+    /// Ask the Claude `/usage` poller for a fresh fetch. Fire-and-forget:
+    /// the poller's own 60 s spam gap and 429 cooldown decide whether
+    /// the call actually goes through, and the snapshot (if any) lands
+    /// via the `onSnapshot` callback. We surface nothing on a skip — a
+    /// silently-dropped click is preferable to nag toasts.
+    func refreshClaudeUsage() {
+        guard SettingsStore.snapshot().enabledProviders.contains("claude") else { return }
+        guard let cp = claudeUsagePoller else { return }
+        Task { await cp.pollOnce() }
     }
 
     /// Load the menu-bar snapshot. Always queries both providers + the

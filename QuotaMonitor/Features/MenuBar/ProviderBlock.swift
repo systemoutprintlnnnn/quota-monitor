@@ -75,12 +75,60 @@ extension MenuBarContentView {
     func claudeQuotaInner(
         stats: ProviderStats, blocks: BillingBlocks.Snapshot
     ) -> some View {
-        if let usage = env.latestClaudeUsage,
-           usage.fiveHour != nil || usage.sevenDay != nil {
-            claudeOAuthInner(usage: usage)
-        } else {
-            claudeFallbackInner(stats: stats, blocks: blocks)
+        VStack(alignment: .leading, spacing: 6) {
+            claudeRateLimitNotice()
+            if let usage = env.latestClaudeUsage,
+               usage.fiveHour != nil || usage.sevenDay != nil {
+                claudeOAuthInner(usage: usage)
+            } else {
+                claudeFallbackInner(stats: stats, blocks: blocks)
+            }
         }
+    }
+
+    /// Tiny inline banner shown above the quota rows while the Claude
+    /// poller is sitting in a 429 cooldown. Tells the user *why* the
+    /// Refresh button looks unresponsive (it silently no-ops during
+    /// cooldown) and counts the remaining time down to the second
+    /// so they can see it tick. Self-hides once the cooldown elapses.
+    @ViewBuilder
+    func claudeRateLimitNotice() -> some View {
+        if let until = env.latestClaudeUsageCooldownUntil, until > Date() {
+            // TimelineView ticks the body once per second so the
+            // countdown ages in place. Once `until - context.date <= 0`
+            // we render nothing, which makes the banner disappear
+            // without needing the actor to broadcast a "cleared" event.
+            // The poller does fire that event eventually, but this
+            // keeps the UI honest in the interim (e.g. if the app was
+            // sleeping during the cooldown's natural expiry).
+            TimelineView(.periodic(from: Date(), by: 1)) { context in
+                let remaining = until.timeIntervalSince(context.date)
+                if remaining > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.badge.exclamationmark")
+                            .font(.caption2)
+                        Text(L10n.claudeRateLimitedRetryIn(
+                            cooldownDurationLabel(seconds: remaining)))
+                            .font(.caption2)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    /// Round-up duration label for cooldown countdowns. Cooldowns max
+    /// out at 30 min so we only need second + minute granularity. We
+    /// round seconds *up* so "0 s" never flashes before the banner
+    /// hides — the user sees "1s", then the banner disappears.
+    func cooldownDurationLabel(seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds.rounded(.up)))
+        if s < 60 { return L10n.cooldownSeconds(s) }
+        // Round up to whole minutes too so a 61-second remainder
+        // doesn't render as "1 min" then suddenly "1 min" → "59s".
+        let m = (s + 59) / 60
+        return L10n.cooldownMinutes(m)
     }
 
     /// Preferred path: render OAuth `/usage` like the Codex block — plan

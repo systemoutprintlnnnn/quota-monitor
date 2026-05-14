@@ -50,12 +50,14 @@ struct MenuBarContentView: View {
 
             HStack {
                 // Single "Refresh" button: rescan local JSONL files AND
-                // pull live Codex rate limits in one go. Two buttons used
-                // to confuse users (Refresh = "API + KPI", Scan = "files +
+                // pull live Codex rate limits AND ask the Claude poller
+                // for a fresh `/usage` snapshot. Two buttons used to
+                // confuse users (Refresh = "API + KPI", Scan = "files +
                 // KPI") because the difference was an implementation
-                // leak, not a meaningful user choice. Claude /usage stays
-                // out — it's edge-rate-limited and only the 2h background
-                // poller may touch it.
+                // leak. Claude `/usage` is edge-rate-limited; the
+                // poller's own 60 s spam gap + 429 cooldown decide
+                // whether `refreshClaudeUsage()` actually goes through,
+                // so spam-clicking can't earn a 429.
                 //
                 // Both `isScanning` (file rescan) and `isRefreshingRateLimits`
                 // (Codex /rateLimits/read) feed the spinner + disabled state
@@ -64,6 +66,7 @@ struct MenuBarContentView: View {
                 let busy = env.isScanning || env.isRefreshingRateLimits
                 Button(busy ? L10n.refreshing : L10n.refresh) {
                     env.refreshRateLimits()
+                    env.refreshClaudeUsage()
                     env.runScan() // tail of runScan() also calls refreshMenuBar()
                 }
                 .disabled(busy)

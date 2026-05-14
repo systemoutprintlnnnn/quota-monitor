@@ -132,6 +132,26 @@ enum L10n {
           zh: "Anthropic 对 /usage 接口限速了，已自动延迟下次轮询")
     }
 
+    /// Inline cooldown notice rendered on the Claude block while the
+    /// 429 cooldown is active. `\(remaining)` is a short duration
+    /// label like "5 min" / "45s" produced by `cooldownDurationLabel`
+    /// — this string just supplies the "rate limited, retry in X"
+    /// frame and lets the duration helper pick the right unit.
+    static func claudeRateLimitedRetryIn(_ remaining: String) -> String {
+        t(en: "Claude usage rate limited, retry in \(remaining)",
+          zh: "Claude usage 限速中，约 \(remaining) 后可重试")
+    }
+    /// Duration unit suffixes for the cooldown countdown. We render
+    /// these via the app's own L10n (not Foundation's locale-based
+    /// formatter) so they hot-swap when the user changes the language
+    /// picker at runtime.
+    static func cooldownSeconds(_ n: Int) -> String {
+        t(en: "\(n)s", zh: "\(n) 秒")
+    }
+    static func cooldownMinutes(_ n: Int) -> String {
+        t(en: "\(n) min", zh: "\(n) 分钟")
+    }
+
     // Provider summary chip rendered in the top-right of each provider
     // block. Sessions only — token count moved into the headline next
     // to USD on 2026-05-06.

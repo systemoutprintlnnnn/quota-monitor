@@ -20,6 +20,14 @@ import Testing
 ///      `insufficientScope` MUST call `onSnapshot(.failure)` so the menu
 ///      bar can show a hint. 429 must NOT surface (it's transient).
 ///   5. **Successful fetch resets counters** — both rate-limit and auth.
+///   6. **Cooldown gates manual pollOnce** — once 429'd, a manual caller
+///      (the Refresh button) must be blocked until the cooldown lifts,
+///      not just by the 60-second spam gap. Naively respecting only
+///      `minimumGap` would let the button re-trigger 60 s after a 429
+///      and earn another one.
+///   7. **Cooldown callback** — onCooldownChange fires with a future
+///      Date on 429 and with nil on the next successful fetch, so the
+///      menu bar can render an inline "limited, retry in X" notice.
 @Suite("ClaudeUsagePoller state machine")
 struct ClaudeUsagePollerTests {
 
@@ -276,5 +284,116 @@ struct ClaudeUsagePollerTests {
 
         let auth = await poller._consecutiveAuthFailuresForTest
         #expect(auth == 0)
+    }
+
+    // MARK: - 5. cooldown gates manual callers
+
+    /// Box for capturing onCooldownChange notifications across the
+    /// actor boundary. Same shape as ResultBox.
+    final class CooldownBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var inner: [Date?] = []
+        func append(_ v: Date?) {
+            lock.lock(); defer { lock.unlock() }
+            inner.append(v)
+        }
+        var all: [Date?] {
+            lock.lock(); defer { lock.unlock() }
+            return inner
+        }
+    }
+
+    private func makePollerWithCooldown(
+        fetcher: any ClaudeUsageFetching,
+        db: DatabaseManager,
+        results: ResultBox,
+        cooldowns: CooldownBox
+    ) -> ClaudeUsagePoller {
+        ClaudeUsagePoller(
+            client: fetcher,
+            database: db,
+            interval: .seconds(7200),
+            onSnapshot: { result in results.append(result) },
+            onCooldownChange: { until in cooldowns.append(until) })
+    }
+
+    @Test("active 429 cooldown blocks a manual pollOnce even after the 60 s gap clears")
+    func cooldownBlocksManualPoll() async throws {
+        // Pre-fix, _only_ minimumGap gated pollOnce. A Refresh-button
+        // click 60 s after a 429 would re-fire the request and earn
+        // another 429. The cooldown gate must be checked too.
+        let mock = MockFetcher(script: [
+            .failure(ClaudeUsageClient.FetchError.rateLimited(retryAfter: 600)),
+            // The next script entry would be consumed only if the
+            // cooldown gate failed to block us. We assert callCount==1
+            // below to prove it didn't.
+            .success(emptySnapshot())
+        ])
+        let db = try makeDatabase()
+        let results = ResultBox()
+        let poller = makePoller(fetcher: mock, db: db, results: results)
+
+        await poller.pollOnce()                          // earns the 429
+        await poller._clearLastAttemptForTest()          // bypass 60 s gap only
+        await poller.pollOnce()                          // must be blocked by cooldown
+
+        let calls = await mock.callCount
+        let cooldown = await poller._cooldownUntilForTest
+        #expect(calls == 1, "the 2nd pollOnce MUST NOT hit the network — cooldown active")
+        #expect(cooldown != nil, "cooldown should still be set")
+        #expect(results.all.isEmpty, "no onSnapshot — 429 was suppressed, no success arrived")
+    }
+
+    @Test("once the cooldown has elapsed, pollOnce proceeds normally")
+    func cooldownExpired_pollProceeds() async throws {
+        let mock = MockFetcher(script: [
+            .failure(ClaudeUsageClient.FetchError.rateLimited(retryAfter: nil)),
+            .success(emptySnapshot())
+        ])
+        let db = try makeDatabase()
+        let results = ResultBox()
+        let poller = makePoller(fetcher: mock, db: db, results: results)
+
+        await poller.pollOnce()                          // earns the 429
+        await poller._clearLastAttemptForTest()          // bypass 60 s gap
+        await poller._setCooldownToPastForTest()         // simulate cooldown elapsed
+        await poller.pollOnce()                          // must succeed
+
+        let calls = await mock.callCount
+        #expect(calls == 2, "with cooldown elapsed, the 2nd pollOnce must hit the network")
+        #expect(results.all.count == 1)
+        if case .success = results.all.first {} else {
+            Issue.record("expected the surfaced result to be the success")
+        }
+    }
+
+    // MARK: - 6. cooldown callback
+
+    @Test("onCooldownChange fires future-Date on 429 and nil on the next success")
+    func cooldownChange_firesOnSetAndClear() async throws {
+        let mock = MockFetcher(script: [
+            .failure(ClaudeUsageClient.FetchError.rateLimited(retryAfter: 600)),
+            .success(emptySnapshot())
+        ])
+        let db = try makeDatabase()
+        let results = ResultBox()
+        let cooldowns = CooldownBox()
+        let poller = makePollerWithCooldown(
+            fetcher: mock, db: db, results: results, cooldowns: cooldowns)
+
+        await poller.pollOnce()                          // 429 → fires(.some(future))
+        await poller._clearLastAttemptForTest()
+        await poller._setCooldownToPastForTest()         // simulate elapsed; cooldown still != nil
+        await poller.pollOnce()                          // success → fires(nil)
+
+        let events = cooldowns.all
+        #expect(events.count == 2,
+                "expected one event per state transition (set, clear), got \(events.count)")
+        #expect(events.first.flatMap { $0 } != nil,
+                "first event must be a non-nil future Date (cooldown set)")
+        #expect(events.last == .some(nil),
+                "second event must be nil (cooldown cleared by success)")
+        let stillSet = await poller._cooldownUntilForTest
+        #expect(stillSet == nil, "successful fetch must clear cooldownUntil")
     }
 }

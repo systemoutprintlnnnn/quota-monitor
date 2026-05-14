@@ -6,22 +6,25 @@ import GRDB
 /// pattern (writes into `rate_limit_samples` so existing analytics keep
 /// working), different transport.
 ///
-/// Failures are intentionally swallowed: the menu bar already surfaces
-/// `lastClaudeUsageError`, so noisy retries on a missing-token machine
-/// don't help. We back off from the default 2-hour cadence to 30 min
-/// after the first auth failure (avoid keychain-prompt storms) and to
-/// 30 min — or `Retry-After` — after a 429.
+/// Failures are intentionally swallowed when transient: the menu bar
+/// already surfaces `lastClaudeUsageError` for auth-class problems, so
+/// noisy retries on a missing-token machine don't help. We back off
+/// from the default 2-hour cadence to 30 min after the first auth
+/// failure (avoid keychain-prompt storms) and run the 5/30-min 429
+/// ladder via `cooldownUntil` below.
 ///
-/// `/usage` is **not** intended to be hit on every menu open. The endpoint
-/// is rate-limited at the Anthropic edge; calling it from a UI refresh
-/// button reliably triggers HTTP 429 within a session. `pollOnce()`
-/// enforces a 30-minute min-gap regardless of caller, in addition to the
-/// scheduled cadence.
+/// `/usage` may be triggered from the menu-bar Refresh button — the
+/// 60-second spam gap plus the `cooldownUntil` gate keep that safe:
+/// spam-clicking can't earn a 429, and once we *have* been 429'd both
+/// the scheduled loop and any manual caller honour the same cooldown.
+/// Without this two-gate setup a manual refresh 60 seconds after a
+/// 429 would immediately step on the limit again.
 actor ClaudeUsagePoller {
     /// Min seconds between any two `pollOnce()` invocations, including
     /// programmatic / manual ones. Just enough to absorb double-clicks
     /// or accidental rapid retries — the real cadence guard is the 2 h
-    /// scheduled `interval`.
+    /// scheduled `interval`, and the real rate-limit defense is
+    /// `cooldownUntil`.
     static let minimumGap: Duration = .seconds(60)
 
     private let client: any ClaudeUsageFetching
@@ -29,11 +32,22 @@ actor ClaudeUsagePoller {
     private var interval: Duration
     private var task: Task<Void, Never>?
     private let onSnapshot: @Sendable (Result<ClaudeUsageSnapshot, any Error>) async -> Void
+    /// Notified whenever the 429 cooldown is set (future Date) or
+    /// cleared (nil). Lets the UI render a "limited, retry in X"
+    /// indicator on the Claude block without poking the actor on every
+    /// frame. Default no-op for tests that don't care.
+    private let onCooldownChange: @Sendable (Date?) async -> Void
     private var consecutiveAuthFailures = 0
-    /// When non-nil, overrides `currentInterval()` for the next poll only.
-    /// Set after a 429 to honour Anthropic's `Retry-After` (or fall back
-    /// to 30 min) so we stop self-amplifying the rate-limit storm.
-    private var nextDelayOverride: Duration?
+    /// Earliest wall-clock time at which the next poll attempt is
+    /// allowed. Set by a 429 to `now + max(Retry-After, fallback,
+    /// 60 s)` where `fallback` is 5 min for the first 429 in a streak
+    /// and 30 min for any subsequent one. Cleared by a successful
+    /// fetch.
+    ///
+    /// Gates both the scheduled loop and any manual caller — without
+    /// this, the UI Refresh button would step on a fresh 429 the
+    /// moment the 60-second spam gap elapsed.
+    private var cooldownUntil: Date?
     /// Wall-clock time of the last attempted `pollOnce`. Drives the
     /// `minimumGap` throttle so a UI bug (e.g. wiring `pollOnce` to a
     /// click handler) can't accidentally hammer the endpoint.
@@ -47,12 +61,14 @@ actor ClaudeUsagePoller {
         client: any ClaudeUsageFetching = ClaudeUsageClient(),
         database: DatabaseManager,
         interval: Duration = .seconds(7200),
-        onSnapshot: @escaping @Sendable (Result<ClaudeUsageSnapshot, any Error>) async -> Void
+        onSnapshot: @escaping @Sendable (Result<ClaudeUsageSnapshot, any Error>) async -> Void,
+        onCooldownChange: @escaping @Sendable (Date?) async -> Void = { _ in }
     ) {
         self.client = client
         self.database = database
         self.interval = interval
         self.onSnapshot = onSnapshot
+        self.onCooldownChange = onCooldownChange
     }
 
     func start() {
@@ -63,8 +79,8 @@ actor ClaudeUsagePoller {
             try? await Task.sleep(for: .seconds(4))
             while !Task.isCancelled {
                 await self.pollOnce()
-                let nextInterval = await self.currentInterval()
-                try? await Task.sleep(for: nextInterval)
+                let nextSleep = await self.scheduledSleepDuration()
+                try? await Task.sleep(for: nextSleep)
             }
         }
     }
@@ -85,42 +101,84 @@ actor ClaudeUsagePoller {
     // import` without mutating production callers.
     var _consecutiveRateLimitsForTest: Int { consecutiveRateLimits }
     var _consecutiveAuthFailuresForTest: Int { consecutiveAuthFailures }
+    var _cooldownUntilForTest: Date? { cooldownUntil }
+    /// Back-compat derived value: seconds between the latest poll
+    /// attempt and the cooldown deadline it produced. Returns nil when
+    /// either is missing or the cooldown has already elapsed. Lets
+    /// existing tests keep asserting on "the backoff window was N
+    /// seconds" without caring how it's stored internally.
     var _nextDelayOverrideSecondsForTest: Int64? {
-        nextDelayOverride.map(\.components.seconds)
+        guard let cooldownUntil, let lastAttemptAt else { return nil }
+        let diff = cooldownUntil.timeIntervalSince(lastAttemptAt)
+        return diff > 0 ? Int64(diff.rounded()) : nil
     }
     var _lastAttemptAtForTest: Date? { lastAttemptAt }
-    /// Clears the minimum-gap timestamp so a test can issue two
-    /// `pollOnce()` calls back-to-back without waiting 60 real seconds.
-    func _resetThrottleForTest() { lastAttemptAt = nil }
+    /// Clears the 60-second spam-gap timestamp so a test can issue two
+    /// `pollOnce()` calls back-to-back without waiting in real time.
+    func _clearLastAttemptForTest() { lastAttemptAt = nil }
+    /// Pretends an active 429 cooldown has already elapsed (rewinds to
+    /// "just past"). The cooldown is left non-nil so a subsequent
+    /// successful fetch still exercises the "clear + notify" branch.
+    func _setCooldownToPastForTest() {
+        cooldownUntil = Date(timeIntervalSinceNow: -1)
+    }
+    /// Convenience for tests that want a fully clean slate between
+    /// pollOnce calls (no spam gap, no cooldown). Equivalent to
+    /// calling both `_clearLastAttemptForTest` and a no-callback
+    /// cooldown clear.
+    func _resetThrottleForTest() {
+        lastAttemptAt = nil
+        cooldownUntil = nil
+    }
 
-    /// Use a longer cool-off after auth failures so we don't poke the
-    /// keychain (potentially prompting the user) every 5 minutes. A 429
-    /// from the previous poll wins over both.
-    private func currentInterval() -> Duration {
-        if let override = nextDelayOverride {
-            nextDelayOverride = nil
-            return override
-        }
-        return consecutiveAuthFailures >= 1 ? .seconds(1800) : interval
+    /// How long the scheduled loop should sleep before its next
+    /// attempt. Auth failures stretch the cadence to 30 min; an active
+    /// 429 cooldown collapses it to "until the cooldown lifts" so we
+    /// recover as soon as the server lets us. With no special state,
+    /// returns the configured `interval` (default 2 h).
+    private func scheduledSleepDuration() -> Duration {
+        let base = consecutiveAuthFailures >= 1 ? Duration.seconds(1800) : interval
+        guard let cooldownUntil else { return base }
+        let now = Date()
+        guard cooldownUntil > now else { return base }
+        let remaining = cooldownUntil.timeIntervalSince(now)
+        return .seconds(max(1.0, remaining))
     }
 
     func pollOnce() async {
-        // Hard min-gap: even manual / programmatic callers must respect
-        // it. The endpoint's edge rate limit gives us no useful behaviour
-        // for sub-30-min polling and silently degrades to 429.
+        let now = Date()
+        // 60-second spam gap. Applies to scheduled and manual callers
+        // alike. The endpoint's edge rate limit has no useful response
+        // to sub-minute polling beyond silent 429s.
         if let last = lastAttemptAt {
-            let elapsed = Date().timeIntervalSince(last)
+            let elapsed = now.timeIntervalSince(last)
             let gapSec = Double(Self.minimumGap.components.seconds)
             if elapsed < gapSec {
                 Log.poller.info("claude /usage skipped — last attempt \(Int(elapsed), privacy: .public)s ago, min gap \(Int(gapSec), privacy: .public)s")
                 return
             }
         }
-        lastAttemptAt = Date()
+        // 429 cooldown gate. Gates manual callers (Refresh button) AND
+        // protects the scheduled loop against early wake-ups (clock
+        // adjustments, debug pauses). Outlives any single pollOnce
+        // call — only success or the cooldown elapsing clears it.
+        if let until = cooldownUntil, until > now {
+            let remaining = until.timeIntervalSince(now)
+            Log.poller.info("claude /usage skipped — in 429 cooldown for \(Int(remaining), privacy: .public)s more")
+            return
+        }
+        lastAttemptAt = now
         do {
             let snapshot = try await client.fetch()
             consecutiveAuthFailures = 0
             consecutiveRateLimits = 0
+            // Fire the cooldown-cleared notice BEFORE the snapshot so
+            // the UI doesn't briefly render fresh data while still
+            // showing "rate-limited, retry in X".
+            if cooldownUntil != nil {
+                cooldownUntil = nil
+                await onCooldownChange(nil)
+            }
             await onSnapshot(.success(snapshot))
             try await persist(snapshot: snapshot)
             Log.poller.info("claude /usage ok 5h=\(snapshot.fiveHour?.usedPercent ?? -1, privacy: .public)% 7d=\(snapshot.sevenDay?.usedPercent ?? -1, privacy: .public)%")
@@ -141,10 +199,12 @@ actor ClaudeUsagePoller {
                 consecutiveRateLimits += 1
                 let fallback: TimeInterval = consecutiveRateLimits == 1 ? 300 : 1800
                 let seconds = max(retryAfter ?? fallback, 60)
-                nextDelayOverride = .seconds(seconds)
-                // Do NOT surface to UI: 429 is a transient, non-actionable
-                // signal (the retry happens automatically). Showing it as
-                // an "error" leads users to think something is broken.
+                let until = now.addingTimeInterval(seconds)
+                cooldownUntil = until
+                await onCooldownChange(until)
+                // Do NOT surface to UI as an `onSnapshot` failure: 429 is a
+                // transient, non-actionable signal. The cooldown callback
+                // gives the UI the actionable bit ("limited, retry in X").
                 Log.poller.info("claude /usage 429 (#\(self.consecutiveRateLimits, privacy: .public)), backing off \(seconds, privacy: .public)s")
                 return
             default:

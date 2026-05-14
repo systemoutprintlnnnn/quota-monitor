@@ -7,6 +7,31 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+- **Manual Refresh now also pulls a fresh Claude `/usage` snapshot.**
+  Previously the menu-bar Refresh button only re-scanned local JSONL
+  files and re-pulled Codex `/rateLimits/read`; the Claude quota rows
+  were refreshed solely by the 5-minute background poller, so a user
+  who clicked Refresh right after their 5h reset would still see the
+  pre-reset percentages until the next poller tick. The button now
+  also calls `pollOnce()` on the Claude poller alongside the Codex
+  refresh.
+- **Claude poller's 429 cooldown is now wall-clock based** so manual
+  Refresh clicks honor it. The previous `nextDelayOverride: Duration`
+  was consumed by the scheduled-loop's `currentInterval()` immediately
+  after a 429 was observed, leaving no state for a manual caller to
+  gate against. Wiring Refresh to `pollOnce()` naively would have let
+  a click ~60s into a 5-min cooldown immediately re-fire `/usage` and
+  earn another 429 — the cooldown is now a `Date` that both the
+  scheduled loop and `pollOnce()` consult.
+
+### Added
+- **"Rate limited, retry in X" banner** above the Claude quota rows
+  while the poller is in 429 cooldown, so spam-clicking Refresh
+  doesn't look like a silent no-op. The countdown ticks once per
+  second via `TimelineView` and self-hides at expiry without needing
+  the actor to broadcast a "cleared" event.
+
 ## [0.2.6] — 2026-05-14
 
 ### Performance
