@@ -563,6 +563,13 @@ enum L10n {
 
     // MARK: - onboarding
 
+    /// Title bar string for the standalone onboarding Window scene.
+    /// Generic enough to read sensibly during either step (language
+    /// or providers) since the body content is what makes the
+    /// current step obvious.
+    static var onboardingWindowTitle: String {
+        t(en: "Welcome to Quota Monitor", zh: "欢迎使用 Quota Monitor")
+    }
     static var onboardingProvidersHeadline: String {
         t(en: "Pick the tools you use", zh: "选择你使用的工具")
     }

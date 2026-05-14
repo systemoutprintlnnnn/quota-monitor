@@ -33,28 +33,44 @@ import SwiftUI
 /// `@Environment(AppEnvironment.self)` triggers it via Observation.
 struct MenuBarLabelView: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(LocalizationStore.self) private var loc
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let rows = pickRows()
-        if rows.isEmpty {
-            // Same icon the app shipped with before — keeps the menu
-            // bar's visual identity stable when there's nothing
-            // useful to show. The popover still works (it has its
-            // own loading / sign-in copy).
-            Image(systemName: "gauge.with.dots.needle.50percent")
-        } else {
-            // Always one horizontal row — multi-row stacks get
-            // clipped by the menu-bar slot's reserved padding even at
-            // 8pt. With both providers selected we join them with a
-            // " | " separator so they read as two distinct chunks
-            // without forcing a second line. `.fixedSize` stops the
-            // system from squeezing the intrinsic width when other
-            // items crowd the bar.
-            Text(rows.map(\.line).joined(separator: " | "))
-                .font(.system(size: 11, weight: .semibold, design: .rounded)
-                      .monospacedDigit())
-                .fixedSize()
+        Group {
+            if rows.isEmpty {
+                // Same icon the app shipped with before — keeps the menu
+                // bar's visual identity stable when there's nothing
+                // useful to show. The popover still works (it has its
+                // own loading / sign-in copy).
+                Image(systemName: "gauge.with.dots.needle.50percent")
+            } else {
+                // Always one horizontal row — multi-row stacks get
+                // clipped by the menu-bar slot's reserved padding even
+                // at 8pt. With both providers selected we join them
+                // with a " | " separator so they read as two distinct
+                // chunks without forcing a second line. `.fixedSize`
+                // stops the system from squeezing the intrinsic width
+                // when other items crowd the bar.
+                Text(rows.map(\.line).joined(separator: " | "))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded)
+                          .monospacedDigit())
+                    .fixedSize()
+            }
+        }
+        // First-launch onboarding lives in a standalone Window scene,
+        // not a sheet on the popover (the popover is too narrow to
+        // host the picker without it looking cramped). We use the
+        // label's `.task` because it runs on app launch even when the
+        // user hasn't clicked the menu-bar icon yet — the popover's
+        // own task fires only on first open, which would mean the
+        // window stays hidden until the user pokes the icon.
+        .task {
+            if loc.needsOnboarding || settings.needsProviderOnboarding {
+                openWindow(id: "onboarding")
+            }
         }
     }
 

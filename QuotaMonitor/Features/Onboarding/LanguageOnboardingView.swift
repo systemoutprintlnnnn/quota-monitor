@@ -1,19 +1,24 @@
 import SwiftUI
 
-/// First-launch onboarding sheet. Two steps:
+/// First-launch onboarding window. Two steps:
 ///   1. **Language** — pick the UI language. Self-readable: both buttons
 ///      display in the language they would activate.
-///   2. **Tools** — pick which CLIs to track. Defaults to all known
-///      providers ON; user can untick the ones they don't use.
+///   2. **Tools** — pick which CLIs to track. Codex defaults on,
+///      Claude Code defaults off (Claude triggers a one-time macOS
+///      Keychain prompt and many users won't have it installed).
 ///
-/// **Why a sheet, not a full-screen dialog.** The menu bar popover is
-/// only 360pt wide and `.sheet` works inside it. A full window would
-/// fight `MenuBarExtra(.window)`'s auto-dismiss-on-outside-click.
+/// **Why a standalone Window scene, not a sheet on the popover.** The
+/// menu-bar popover is 360pt wide and showing a sheet on top of it
+/// looked cramped + cropped — the language buttons ran into the
+/// popover's edges and the tool toggles wrapped awkwardly. A
+/// dedicated centered window gives the layout room and matches the
+/// usual "first launch wizard" affordance users expect.
 ///
 /// **Hard requirement: cannot be dismissed without finishing both
-/// steps.** No close button, no escape — `isPresented` is bound to
-/// `needsOnboarding || needsProviderOnboarding`, so the sheet only
-/// vanishes when both are satisfied.
+/// steps.** No close button on the action area, and if the user hits
+/// the red titlebar button we re-open the window from `onDisappear`
+/// while the underlying `needs*` flags are still true. The window
+/// gets cleanly closed once Continue runs and the flags clear.
 ///
 /// **Existing-installation upgrade path.** `SettingsStore.init` sets
 /// `hasCompletedProviderOnboarding = true` whenever any prior settings
@@ -23,6 +28,8 @@ struct OnboardingView: View {
     @Environment(LocalizationStore.self) private var loc
     @Environment(SettingsStore.self) private var settings
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     /// `language` while the user hasn't picked a language yet, then
     /// auto-advances to `providers` if there's a remaining step. The
@@ -42,6 +49,16 @@ struct OnboardingView: View {
         }
         .padding(20)
         .frame(width: 340)
+        // Re-open the window if the user closes it before completing
+        // both steps — `onDisappear` fires both on legitimate
+        // completion (we dismissed it ourselves, in which case the
+        // flags are clear and this no-ops) and on the user closing
+        // the titlebar (in which case the flags are still set).
+        .onDisappear {
+            if loc.needsOnboarding || settings.needsProviderOnboarding {
+                openWindow(id: "onboarding")
+            }
+        }
     }
 
     // MARK: - language step
@@ -152,6 +169,10 @@ struct OnboardingView: View {
                 settings.replaceEnabledProviders(picked)
                 settings.markProviderOnboardingDone()
                 env.applyEnabledProviders()
+                // Both `needs*` flags are now false, so closing here
+                // is the legitimate path; the `onDisappear` re-opener
+                // sees the cleared flags and stays silent.
+                dismissWindow(id: "onboarding")
             } label: {
                 Text(L10n.onboardingContinue)
                     .frame(maxWidth: .infinity)

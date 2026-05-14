@@ -37,6 +37,13 @@ struct QuotaMonitorApp: App {
         // 5h/7d usage % for the user-chosen provider, falling back to
         // the same gauge SF Symbol the app shipped with when there's
         // no usable data.
+        //
+        // Onboarding intentionally does NOT live as a `.sheet` on the
+        // popover any more. The popover is a 360pt-wide menu-bar card
+        // and a sheet on top of it looked cramped + cropped — instead
+        // we have a dedicated `Window("Get started", id: "onboarding")`
+        // scene below, which `MenuBarLabelView` opens on launch when
+        // `needsOnboarding` is true.
         MenuBarExtra {
             MenuBarContentView()
                 .environment(environment)
@@ -48,14 +55,6 @@ struct QuotaMonitorApp: App {
                 // explicitly read `tickForceRedraw` to register a
                 // dependency.
                 .id(localization.tickForceRedraw)
-                .sheet(isPresented: .constant(
-                    localization.needsOnboarding || settings.needsProviderOnboarding
-                )) {
-                    OnboardingView()
-                        .environment(localization)
-                        .environment(settings)
-                        .environment(environment)
-                }
                 .task {
                     environment.refreshRateLimits()
                     environment.refreshDashboard()
@@ -65,9 +64,29 @@ struct QuotaMonitorApp: App {
         } label: {
             MenuBarLabelView()
                 .environment(environment)
+                .environment(localization)
                 .environment(settings)
         }
         .menuBarExtraStyle(.window)
+
+        // Standalone onboarding window, opened from MenuBarLabelView's
+        // `.task` on launch when the user hasn't yet picked a language
+        // or a tracked-tools set. `OnboardingView` dismisses this
+        // window on Continue; if the user closes it early via the red
+        // titlebar button, OnboardingView re-opens it from onDisappear
+        // so they can't slip past the gate.
+        Window(L10n.onboardingWindowTitle, id: "onboarding") {
+            OnboardingView()
+                .environment(localization)
+                .environment(settings)
+                .environment(environment)
+                .environment(\.locale, localization.locale)
+                .id(localization.tickForceRedraw)
+        }
+        // Pin the window size so the layout doesn't reflow when the
+        // user resizes mid-onboarding (the design assumes ~340pt wide).
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         Window("Quota Monitor", id: "dashboard") {
             MainWindowView()
