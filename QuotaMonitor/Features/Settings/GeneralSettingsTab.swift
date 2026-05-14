@@ -61,20 +61,17 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                // Which provider's 5h/7d quota fills the menu-bar slot.
-                // We hide the picker when only one provider is enabled
-                // because there's nothing to choose — the icon will
-                // automatically follow whichever one is on (the snap
-                // logic in SettingsStore guarantees that).
+                // Which provider(s) the menu-bar slot displays. Multi-
+                // select: pick one, both, or neither (empty set falls
+                // back to the gauge SF Symbol). We only render the
+                // picker when at least two providers are enabled —
+                // with one enabled the choice trivially collapses.
                 if settings.enabledProviders.count > 1 {
                     LabeledContent(L10n.menuBarIconProviderLabel) {
-                        Picker("", selection: $settings.menuBarIconProvider) {
-                            ForEach(SettingsStore.MenuBarIconProvider.allCases) { p in
-                                Text(p.label).tag(p)
-                            }
+                        VStack(alignment: .trailing, spacing: 4) {
+                            iconProviderToggle(id: "codex", label: L10n.codex)
+                            iconProviderToggle(id: "claude", label: L10n.claudeCode)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
                         .frame(maxWidth: 220, alignment: .trailing)
                     }
                     Text(L10n.menuBarIconProviderHelp)
@@ -139,5 +136,21 @@ struct GeneralSettingsTab: View {
                 env.applyEnabledProviders()
             }
         ))
+    }
+
+    /// Toggle for the menu-bar-icon multi-select. Same shape as
+    /// `providerToggle` but bound against `menuBarIconProviders`.
+    /// Blocked changes (would empty the set) silently no-op so the
+    /// toggle stays visually ON.
+    @ViewBuilder
+    private func iconProviderToggle(id: String, label: String) -> some View {
+        let isOn = settings.menuBarIconProviders.contains(id)
+        Toggle(label, isOn: Binding(
+            get: { isOn },
+            set: { wantOn in
+                _ = settings.setMenuBarIconProviderEnabled(id, enabled: wantOn)
+            }
+        ))
+        .toggleStyle(.checkbox)
     }
 }

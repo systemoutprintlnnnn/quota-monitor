@@ -72,20 +72,27 @@ final class SettingsStore {
                               forKey: Keys.menuBarHeadlineWindow) }
     }
     /// Which provider's quota fills the menu-bar icon (one row per
-    /// window: 5h + 7d, "X% used"). Only one provider at a time —
-    /// the menu-bar slot is too narrow to fit both, and the popover
-    /// already shows everything in detail. Hidden when the chosen
-    /// provider isn't currently tracked (`enabledProviders` doesn't
-    /// contain it) or when no usage data is available yet — the
-    /// label falls back to a static SF Symbol in those cases.
+    /// window: 5h + 7d, "X% used"). Multi-select — the user can show
+    /// one provider, both side-by-side, or neither (in which case the
+    /// menu-bar label falls back to the static gauge SF Symbol).
+    /// Hidden when no chosen provider is currently tracked or when no
+    /// usage data is yet available.
     ///
-    /// Default: `.codex`. Snap behaviour: when the user disables the
-    /// currently-selected provider, `setProviderEnabled` flips this
-    /// to whatever's still enabled so we never persistently point at
-    /// nothing.
-    var menuBarIconProvider: MenuBarIconProvider {
-        didSet { defaults.set(menuBarIconProvider.rawValue,
-                              forKey: Keys.menuBarIconProvider) }
+    /// Default on fresh install: same set as `enabledProviders`. On
+    /// upgrades from the legacy single-string key we migrate the old
+    /// choice once. Reconcile behaviour: disabling a provider drops
+    /// it from this set; we do NOT reseed an empty set because empty
+    /// is a valid "show the gauge icon" choice.
+    ///
+    /// Constraint: must be a subset of `knownIconProviders` AND
+    /// `enabledProviders`. UI should call
+    /// `setMenuBarIconProviderEnabled(_:enabled:)` to enforce the
+    /// "must be currently enabled" rule when adding.
+    private(set) var menuBarIconProviders: Set<String> {
+        didSet {
+            defaults.set(Array(menuBarIconProviders).sorted(),
+                         forKey: Keys.menuBarIconProviders)
+        }
     }
     /// Which providers QuotaMonitor actively tracks. Persisted as a
     /// string array under `Keys.enabledProviders`. Disabling a provider
@@ -129,21 +136,12 @@ final class SettingsStore {
         }
     }
 
-    /// Provider whose quota fills the menu-bar icon. Raw values match
-    /// the `provider` strings in `enabledProviders` and the SQLite
-    /// `provider` column so we can cross-check membership without a
-    /// translation table.
-    enum MenuBarIconProvider: String, CaseIterable, Sendable, Identifiable {
-        case codex
-        case claude
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .codex:  return L10n.codex
-            case .claude: return L10n.claudeCode
-            }
-        }
-    }
+    /// Provider IDs eligible to appear in the menu-bar label. Same
+    /// shape as `enabledProviders` (raw provider strings), and a
+    /// subset of `knownProviders`. Kept as a free-form Set instead of
+    /// an enum so the storage shape mirrors `enabledProviders` and we
+    /// can do simple Set operations when reconciling.
+    nonisolated static let knownIconProviders: Set<String> = ["codex", "claude"]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -162,8 +160,6 @@ final class SettingsStore {
             defaults.bool(forKey: Keys.mirrorClaudeKeychainToFile)
         self.menuBarHeadlineWindow = (defaults.string(forKey: Keys.menuBarHeadlineWindow)
             .flatMap(HeadlineWindow.init(rawValue:))) ?? .last7d
-        self.menuBarIconProvider = (defaults.string(forKey: Keys.menuBarIconProvider)
-            .flatMap(MenuBarIconProvider.init(rawValue:))) ?? .codex
         // Enabled providers — defaults to the full set so an old build
         // upgrading to this binary keeps tracking both. We sanitise to
         // drop unknown tokens (future renames / deletions) and refuse
@@ -172,9 +168,33 @@ final class SettingsStore {
         let sanitised: Set<String> = storedProviders.map {
             Set($0).intersection(Self.knownProviders)
         } ?? []
-        self.enabledProviders = sanitised.isEmpty
+        let resolvedEnabled: Set<String> = sanitised.isEmpty
             ? Self.knownProviders
             : sanitised
+        self.enabledProviders = resolvedEnabled
+        // Menu-bar icon providers (multi-select). Defaults to whatever
+        // is enabled. We also migrate the legacy single-string key
+        // `settings.menuBarIconProvider` (one of "codex"/"claude") so
+        // upgrading users keep their previous choice. Sanitise against
+        // both knownIconProviders AND the resolved enabled set so we
+        // never persist a row that points at a disabled provider.
+        let storedIconArr = defaults.array(forKey: Keys.menuBarIconProviders) as? [String]
+        let sanitisedIcons: Set<String> = storedIconArr.map {
+            Set($0).intersection(Self.knownIconProviders).intersection(resolvedEnabled)
+        } ?? []
+        if !sanitisedIcons.isEmpty {
+            self.menuBarIconProviders = sanitisedIcons
+        } else if let legacy = defaults.string(forKey: Keys.legacyMenuBarIconProvider),
+                  Self.knownIconProviders.contains(legacy),
+                  resolvedEnabled.contains(legacy) {
+            self.menuBarIconProviders = [legacy]
+        } else {
+            // Fresh install (or legacy value pointed at a now-disabled
+            // provider). Show every enabled provider — that's the
+            // least-surprising default and matches what the user just
+            // saw in onboarding.
+            self.menuBarIconProviders = resolvedEnabled
+        }
         // Onboarding-done flag. If it's missing AND the user already has
         // some prior settings written (e.g. they picked a language on a
         // previous launch), assume they're an existing user and don't
@@ -211,7 +231,27 @@ final class SettingsStore {
         guard !next.isEmpty else { return false }
         guard next != enabledProviders else { return true }
         enabledProviders = next
-        snapMenuBarIconProviderIfNeeded()
+        reconcileMenuBarIconProviders()
+        return true
+    }
+
+    /// Toggle one provider on/off in the menu-bar icon set. Empty
+    /// is a valid state (the label falls back to the gauge SF Symbol).
+    /// Returns false (and leaves storage untouched) only when the
+    /// caller asks to enable a provider that isn't a known icon
+    /// provider or isn't currently enabled in `enabledProviders`.
+    @discardableResult
+    func setMenuBarIconProviderEnabled(_ provider: String, enabled: Bool) -> Bool {
+        var next = menuBarIconProviders
+        if enabled {
+            guard Self.knownIconProviders.contains(provider),
+                  enabledProviders.contains(provider) else { return false }
+            next.insert(provider)
+        } else {
+            next.remove(provider)
+        }
+        guard next != menuBarIconProviders else { return true }
+        menuBarIconProviders = next
         return true
     }
 
@@ -228,22 +268,19 @@ final class SettingsStore {
         let cleaned = providers.intersection(Self.knownProviders)
         guard !cleaned.isEmpty else { return false }
         enabledProviders = cleaned
-        snapMenuBarIconProviderIfNeeded()
+        reconcileMenuBarIconProviders()
         return true
     }
 
-    /// If the user just disabled the provider currently powering the
-    /// menu-bar icon, switch the icon to whichever provider is still
-    /// enabled. The render path also has a fallback (SF Symbol when the
-    /// chosen provider has no usable data), but the icon should track
-    /// the user's current setup, not stay "stuck" pointed at something
-    /// they've turned off.
-    private func snapMenuBarIconProviderIfNeeded() {
-        guard !enabledProviders.contains(menuBarIconProvider.rawValue) else { return }
-        if let fallback = MenuBarIconProvider.allCases.first(where: {
-            enabledProviders.contains($0.rawValue)
-        }) {
-            menuBarIconProvider = fallback
+    /// Drop any icon-provider entries that aren't currently enabled.
+    /// Empty is a valid resting state (the menu-bar label falls back
+    /// to the gauge SF Symbol) so we do NOT reseed when the
+    /// intersection clears out — that would override the user's
+    /// explicit "show neither" choice next time they toggle providers.
+    private func reconcileMenuBarIconProviders() {
+        let next = menuBarIconProviders.intersection(enabledProviders)
+        if next != menuBarIconProviders {
+            menuBarIconProviders = next
         }
     }
 
@@ -298,7 +335,11 @@ final class SettingsStore {
         static let keychainPolicy = "settings.keychainPolicy"
         static let mirrorClaudeKeychainToFile = "settings.mirrorClaudeKeychainToFile"
         static let menuBarHeadlineWindow = "settings.menuBarHeadlineWindow"
-        static let menuBarIconProvider = "settings.menuBarIconProvider"
+        // Multi-select store (current). Persisted as `[String]`.
+        static let menuBarIconProviders = "settings.menuBarIconProviders"
+        // Legacy single-string key (pre-multi-select). Read-only — we
+        // migrate it on first launch and never write to it again.
+        static let legacyMenuBarIconProvider = "settings.menuBarIconProvider"
         static let enabledProviders = "settings.enabledProviders"
         static let providerOnboardingDone = "onboarding.providersDone"
     }

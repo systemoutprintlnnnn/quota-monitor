@@ -575,11 +575,11 @@ enum L10n {
     // MARK: - settings · menu bar icon
 
     static var menuBarIconProviderLabel: String {
-        t(en: "Icon shows", zh: "图标显示")
+        t(en: "Show in menu bar", zh: "菜单栏显示")
     }
     static var menuBarIconProviderHelp: String {
-        t(en: "Pick which tool's 5h and 7d usage fill the menu-bar icon. Falls back to a gauge symbol when there's no data.",
-          zh: "选择哪个工具的 5 小时与 7 日使用率显示在菜单栏图标上。无数据时回退为表盘图标。")
+        t(en: "Pick which tools' 5h and 7d usage to show on the menu-bar icon. Choose both for a combined line, one for a shorter readout, or none to keep the gauge icon.",
+          zh: "选择哪些工具的 5 小时与 7 日使用率显示在菜单栏图标上。两个都选会并排显示在一行，只选一个会更短，都不选则显示原本的表盘图标。")
     }
 
     // MARK: - settings · advanced · claude credentials mirror
