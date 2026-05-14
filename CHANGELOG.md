@@ -7,6 +7,24 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-05-14
+
+### Performance
+- **Claude rollouts now read incrementally.** `ClaudeImportEngine`
+  was re-parsing every rollout from byte 0 each time mtime/size
+  moved, then re-inserting every `usage_event` for the touched
+  session. On heavy-Claude installs that dominated each menu-bar
+  refresh cost — multi-MB JSONL files re-parsed every 5 minutes
+  just to discover one new assistant turn. Schema v5 adds
+  `import_state.byte_offset` and a Claude-only
+  `usage_events.provider_message_id` (with a partial unique index),
+  so the second pass only sees appended bytes and `INSERT OR IGNORE`
+  silently deduplicates any rows re-emitted across a boundary.
+  `LineReader.lastLineHadNewline` lets the parser leave a mid-write
+  tail for the next pass to re-read once the writer finishes. Codex
+  is unchanged — its parser's cumulative→delta math needs separate
+  design work before incremental scanning there is safe.
+
 ## [0.2.5] — 2026-05-13
 
 ### Changed
