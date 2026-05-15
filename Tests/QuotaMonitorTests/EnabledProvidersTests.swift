@@ -236,8 +236,9 @@ struct EnabledProvidersTests {
             let store = SettingsStore(defaults: d)
             #expect(store.replaceEnabledProviders(["codex"]))
             #expect(store.setMenuBarIconProviderEnabled("codex", enabled: true))
-            // setMenuBarIconProviderEnabled returns true for a no-op
-            // "remove a provider that's already absent" — claude was
+            // setMenuBarIconProviderEnabled returns true here because
+            // the resulting set equals the current one — its guard
+            // short-circuits any no-op as success. Claude was already
             // dropped from menuBarIconProviders by the reconcile that
             // ran inside replaceEnabledProviders.
             #expect(store.setMenuBarIconProviderEnabled("claude", enabled: false))
