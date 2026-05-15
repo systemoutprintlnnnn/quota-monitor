@@ -173,7 +173,16 @@ struct OnboardingView: View {
                 var picked = Set<String>()
                 if pickedCodex { picked.insert("codex") }
                 if pickedClaude { picked.insert("claude") }
-                finishOnboarding(providers: picked, iconProviders: picked)
+                // Both picked → ask which to show in the menu bar.
+                // Just one → the question is degenerate (the only
+                // tracked provider is the only icon-eligible one),
+                // so commit immediately with iconProviders == picked.
+                if picked.count == 2 {
+                    providersCommitted = true
+                } else {
+                    finishOnboarding(providers: picked,
+                                     iconProviders: picked)
+                }
             } label: {
                 Text(L10n.onboardingContinue)
                     .frame(maxWidth: .infinity)
