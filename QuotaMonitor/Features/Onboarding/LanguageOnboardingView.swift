@@ -166,13 +166,7 @@ struct OnboardingView: View {
                 var picked = Set<String>()
                 if pickedCodex { picked.insert("codex") }
                 if pickedClaude { picked.insert("claude") }
-                settings.replaceEnabledProviders(picked)
-                settings.markProviderOnboardingDone()
-                env.applyEnabledProviders()
-                // Both `needs*` flags are now false, so closing here
-                // is the legitimate path; the `onDisappear` re-opener
-                // sees the cleared flags and stays silent.
-                dismissWindow(id: "onboarding")
+                finishOnboarding(providers: picked, iconProviders: picked)
             } label: {
                 Text(L10n.onboardingContinue)
                     .frame(maxWidth: .infinity)
@@ -182,6 +176,32 @@ struct OnboardingView: View {
             .disabled(!pickedCodex && !pickedClaude)
             .padding(.horizontal, 8)
         }
+    }
+
+    /// Single commit path for the whole onboarding wizard. Called once
+    /// per completion — either from step 2 (if the user picked only
+    /// one provider, in which case `iconProviders == providers`) or
+    /// from step 3 (if they picked both and chose the menu-bar subset
+    /// explicitly). Writes are ordered so the reconcile inside
+    /// `replaceEnabledProviders` can't fight the explicit menu-bar
+    /// toggles: enable the providers first, then drive the icon set.
+    private func finishOnboarding(providers: Set<String>,
+                                  iconProviders: Set<String>) {
+        settings.replaceEnabledProviders(providers)
+        // Explicitly sync the menu-bar subset. Without this we'd inherit
+        // the SettingsStore default (a copy of enabledProviders) and
+        // over-show on a "user picked both but only wants Codex on the
+        // menu bar" flow.
+        for id in SettingsStore.knownIconProviders {
+            _ = settings.setMenuBarIconProviderEnabled(
+                id, enabled: iconProviders.contains(id))
+        }
+        settings.markProviderOnboardingDone()
+        env.applyEnabledProviders()
+        // Both `needs*` flags are now false, so closing here is the
+        // legitimate path; the `onDisappear` re-opener sees the
+        // cleared flags and stays silent.
+        dismissWindow(id: "onboarding")
     }
 
     private enum Step { case language, providers }
