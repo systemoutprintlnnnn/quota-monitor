@@ -179,10 +179,10 @@ struct OnboardingView: View {
     }
 
     /// Single commit path for the whole onboarding wizard. Called once
-    /// per completion — either from step 2 (if the user picked only
-    /// one provider, in which case `iconProviders == providers`) or
-    /// from step 3 (if they picked both and chose the menu-bar subset
-    /// explicitly). Writes are ordered so the reconcile inside
+    /// per completion — either from step 2 (direct close, where
+    /// `iconProviders == providers`) or from step 3 (the user picked
+    /// both providers and chose the menu-bar subset explicitly).
+    /// Writes are ordered so the reconcile inside
     /// `replaceEnabledProviders` can't fight the explicit menu-bar
     /// toggles: enable the providers first, then drive the icon set.
     private func finishOnboarding(providers: Set<String>,
