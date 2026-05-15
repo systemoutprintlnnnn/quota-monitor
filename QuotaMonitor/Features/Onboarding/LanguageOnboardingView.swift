@@ -211,14 +211,62 @@ struct OnboardingView: View {
         dismissWindow(id: "onboarding")
     }
 
-    // MARK: - menu-bar step (filled in next task)
+    // MARK: - menu-bar step
 
+    /// Local working copy for step 3 — only consumed by `finishOnboarding`
+    /// on Continue. Defaults: Codex on, Claude off. The user can flip
+    /// both off; an empty icon set is legal and means "show the gauge
+    /// SF Symbol" (see SettingsStore.menuBarIconProviders docs).
     @State private var iconCodex = true
     @State private var iconClaude = false
 
     @ViewBuilder
     private var menuBarStep: some View {
-        EmptyView()
+        VStack(spacing: 18) {
+            VStack(spacing: 6) {
+                Image(systemName: "menubar.dock.rectangle")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.tint)
+                Text(L10n.menuBarIconProviderLabel)
+                    .font(.title3.weight(.semibold))
+            }
+            .padding(.top, 12)
+
+            Text(L10n.menuBarIconProviderHelp)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 10) {
+                Toggle(isOn: $iconCodex) {
+                    Label(L10n.codex, systemImage: "terminal")
+                }
+                .toggleStyle(.switch)
+                Toggle(isOn: $iconClaude) {
+                    Label(L10n.claudeCode, systemImage: "sparkles")
+                }
+                .toggleStyle(.switch)
+            }
+            .padding(.horizontal, 8)
+
+            // Unlike step 2's Continue, this one is always enabled —
+            // an empty icon set is a legal resting state (gauge-icon
+            // fallback) per SettingsStore.menuBarIconProviders semantics.
+            Button {
+                var icons = Set<String>()
+                if iconCodex  { icons.insert("codex") }
+                if iconClaude { icons.insert("claude") }
+                finishOnboarding(providers: ["codex", "claude"],
+                                 iconProviders: icons)
+            } label: {
+                Text(L10n.onboardingContinue)
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 8)
+        }
     }
 
     private enum Step { case language, providers, menuBar }
