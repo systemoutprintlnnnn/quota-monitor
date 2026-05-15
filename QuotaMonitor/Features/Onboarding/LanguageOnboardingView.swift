@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// First-launch onboarding window. Two steps:
+/// First-launch onboarding window. Up to three steps:
 ///   1. **Language** — pick the UI language. Self-readable: both buttons
 ///      display in the language they would activate.
 ///   2. **Tools** — pick which CLIs to track. Codex defaults on,
 ///      Claude Code defaults off (Claude triggers a one-time macOS
 ///      Keychain prompt and many users won't have it installed).
+///   3. **Menu bar** — only when step 2 picked **both** CLIs: choose
+///      which of them appears in the menu-bar readout. Single-provider
+///      picks skip this step (the question is degenerate).
 ///
 /// **Why a standalone Window scene, not a sheet on the popover.** The
 /// menu-bar popover is 360pt wide and showing a sheet on top of it
@@ -31,12 +34,6 @@ struct OnboardingView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
-    /// `language` while the user hasn't picked a language yet, then
-    /// auto-advances to `providers` if there's a remaining step. The
-    /// view's `body` re-derives the step on each render so existing
-    /// users (already-set language, missing providers flag) jump
-    /// straight to step 2.
-
     /// Flips to `true` when step 2's Continue is clicked with **both**
     /// providers selected, transitioning the wizard to the menu-bar
     /// step. Session-scoped on purpose — closing and re-opening the
@@ -45,7 +42,7 @@ struct OnboardingView: View {
 
     private var step: Step {
         if loc.needsOnboarding { return .language }
-        if !providersCommitted   { return .providers }
+        if !providersCommitted { return .providers }
         return .menuBar
     }
 
