@@ -194,4 +194,55 @@ struct EnabledProvidersTests {
         #expect(store.replaceEnabledProviders(["gemini"]) == false)
         #expect(store.enabledProviders == ["codex", "claude"])
     }
+
+    @Test
+    func onboardingCommitSequenceProducesExpectedEndState() {
+        // Locks down the call sequence OnboardingView.finishOnboarding uses:
+        //   1. replaceEnabledProviders(providers)  — internally reconciles
+        //      menuBarIconProviders to a subset of the new enabled set
+        //   2. setMenuBarIconProviderEnabled(_:enabled:) for every known
+        //      icon provider, driven by the user's step-3 picks
+        // Three representative cases — pick-both/show-codex-only,
+        // pick-both/show-neither, pick-one-and-step-3-skipped.
+
+        // Case 1: both providers tracked, only Codex shown in menu bar.
+        do {
+            let d = Self.freshDefaults()
+            let store = SettingsStore(defaults: d)
+            #expect(store.replaceEnabledProviders(["codex", "claude"]))
+            #expect(store.setMenuBarIconProviderEnabled("codex", enabled: true))
+            #expect(store.setMenuBarIconProviderEnabled("claude", enabled: false))
+            #expect(store.enabledProviders == ["codex", "claude"])
+            #expect(store.menuBarIconProviders == ["codex"])
+        }
+
+        // Case 2: both providers tracked, neither shown in menu bar
+        // (gauge-icon fallback). Empty is a valid resting state.
+        do {
+            let d = Self.freshDefaults()
+            let store = SettingsStore(defaults: d)
+            #expect(store.replaceEnabledProviders(["codex", "claude"]))
+            #expect(store.setMenuBarIconProviderEnabled("codex", enabled: false))
+            #expect(store.setMenuBarIconProviderEnabled("claude", enabled: false))
+            #expect(store.enabledProviders == ["codex", "claude"])
+            #expect(store.menuBarIconProviders == [])
+        }
+
+        // Case 3: only Codex tracked, only Codex shown. Mirrors the
+        // "step 2 picks one provider, step 3 is skipped" branch where
+        // finishOnboarding is called with iconProviders == providers.
+        do {
+            let d = Self.freshDefaults()
+            let store = SettingsStore(defaults: d)
+            #expect(store.replaceEnabledProviders(["codex"]))
+            #expect(store.setMenuBarIconProviderEnabled("codex", enabled: true))
+            // setMenuBarIconProviderEnabled returns true for a no-op
+            // "remove a provider that's already absent" — claude was
+            // dropped from menuBarIconProviders by the reconcile that
+            // ran inside replaceEnabledProviders.
+            #expect(store.setMenuBarIconProviderEnabled("claude", enabled: false))
+            #expect(store.enabledProviders == ["codex"])
+            #expect(store.menuBarIconProviders == ["codex"])
+        }
+    }
 }
