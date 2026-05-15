@@ -177,7 +177,7 @@ struct OnboardingView: View {
                 // Just one → the question is degenerate (the only
                 // tracked provider is the only icon-eligible one),
                 // so commit immediately with iconProviders == picked.
-                if picked.count == 2 {
+                if pickedCodex && pickedClaude {
                     providersCommitted = true
                 } else {
                     finishOnboarding(providers: picked,
