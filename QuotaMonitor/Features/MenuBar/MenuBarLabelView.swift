@@ -18,9 +18,17 @@ import SwiftUI
 /// **Always one line.** macOS reserves vertical padding inside the
 /// menu-bar slot we can't reclaim, so any 2-row stack ends up
 /// clipped — even at 8pt with zero VStack spacing the system still
-/// eats the second row. We always render one row at 11pt and join
-/// multi-provider output with " | ". The line gets wider but never
-/// taller, which is the only dimension the slot will give us.
+/// eats the second row. We always render one row.
+///
+/// **Inline type hierarchy.** Within that one line the labels
+/// ("5h" / "7d") render at 9pt medium and the percent values at
+/// 11pt heavy monospacedDigit, separated by a thin space. This
+/// turns the row into a caption→headline rhythm — the number is
+/// the content, the label is supporting text — without needing a
+/// second row. Between the two windows a slightly wider " · "
+/// at the lighter weight reads as a calm pause; between providers
+/// a triple space puts visible distance between "CX …" and
+/// "CC …" without introducing yet another glyph.
 ///
 /// **Provider tag in multi mode.** "CX" / "CC" prefix tells the user
 /// which CLI each percent belongs to. We omit the prefix in
@@ -47,16 +55,15 @@ struct MenuBarLabelView: View {
                 // own loading / sign-in copy).
                 Image(systemName: "gauge.with.dots.needle.50percent")
             } else {
-                // Always one horizontal row — multi-row stacks get
-                // clipped by the menu-bar slot's reserved padding even
-                // at 8pt. With both providers selected we join them
-                // with a " | " separator so they read as two distinct
-                // chunks without forcing a second line. `.fixedSize`
-                // stops the system from squeezing the intrinsic width
-                // when other items crowd the bar.
-                Text(rows.map(\.line).joined(separator: " | "))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded)
-                          .monospacedDigit())
+                // Mixed-font Text concatenation — SwiftUI converts
+                // this to an NSAttributedString with per-run fonts,
+                // which the menu-bar slot renders honoring each
+                // run's size + weight. That gives us caption-style
+                // labels and headline-weight values on one line
+                // without breaking the slot's one-row constraint.
+                // `.fixedSize` stops the system from squeezing the
+                // intrinsic width when other bar items crowd in.
+                styledTitle(rows)
                     .fixedSize()
             }
         }
@@ -74,69 +81,101 @@ struct MenuBarLabelView: View {
         }
     }
 
+    // MARK: - styled rendering
+
+    /// Builds the inline-hierarchy `Text` from the row list. Each
+    /// piece is its own `Text(...).font(...)` so SwiftUI emits a
+    /// proper AttributedString with mixed runs that the menu-bar
+    /// slot's title rendering respects.
+    ///
+    /// Why three fonts:
+    ///   * `label`  — 9pt medium, the caption ("5h" / "7d" / tag)
+    ///   * `value`  — 11pt heavy monospacedDigit, the headline ("65%")
+    ///   * `sep`    — 9pt regular, the punctuation (" · ", spacing)
+    /// Putting the punctuation at the lighter weight keeps the eye
+    /// moving from value to value without the separator competing
+    /// for attention. monospacedDigit on the value side stops the
+    /// bar from shifting horizontally as percentages flip between
+    /// 1-digit and 2-digit (9% → 10%).
+    private func styledTitle(_ rows: [Row]) -> Text {
+        let label = Font.system(size: 9, weight: .medium, design: .rounded)
+        let value = Font.system(size: 11, weight: .heavy, design: .rounded)
+            .monospacedDigit()
+        let sep = Font.system(size: 9, weight: .regular, design: .rounded)
+        let multi = rows.count > 1
+
+        func provider(_ r: Row) -> Text {
+            var t = Text("")
+            if multi {
+                t = t + Text("\(r.tag) ").font(label.weight(.semibold))
+            }
+            // U+2009 THIN SPACE between label and value — couples
+            // them tighter than a regular space without making the
+            // glyphs touch.
+            t = t + Text("5h\u{2009}").font(label)
+            t = t + Text(r.fiveHour).font(value)
+            t = t + Text("  ·  ").font(sep)
+            t = t + Text("7d\u{2009}").font(label)
+            t = t + Text(r.sevenDay).font(value)
+            return t
+        }
+
+        var out = Text("")
+        for (i, r) in rows.enumerated() {
+            if i > 0 {
+                // Triple space between providers — wider than the
+                // intra-provider " · " so the two CLI groups read
+                // as separate units without introducing a second
+                // glyph (which would clutter the row).
+                out = out + Text("   ").font(sep)
+            }
+            out = out + provider(r)
+        }
+        return out
+    }
+
     // MARK: - data picking
 
     private struct Row {
-        /// Two-letter provider tag ("CX" / "CC"). Used both as the
-        /// visible prefix when multiple providers are shown and as
-        /// the ForEach id.
+        /// Two-letter provider tag ("CX" / "CC"). Visible prefix
+        /// in multi-provider mode; suppressed in single mode.
         let tag: String
-        /// "5h 23% · 7d 8%". Stable layout so the bar doesn't
-        /// twitch when one window is missing — `format` returns
-        /// "--" when a percent is unknown.
-        let body: String
-        /// Final string emitted into the menu bar — single-provider
-        /// mode skips the tag (the user picked exactly one), multi
-        /// keeps the prefix so they can tell rows apart.
-        let line: String
+        /// "23%" / "5%" / "--" — already clamped + formatted.
+        let fiveHour: String
+        let sevenDay: String
     }
 
     private func pickRows() -> [Row] {
         // Order matters for the visible row — keep it stable across
         // renders (`Set` iteration is not stable) by hard-coding the
         // canonical "codex first, claude second" sequence.
-        var out: [(tag: String, body: String)] = []
+        var out: [Row] = []
         for id in ["codex", "claude"] {
             guard settings.menuBarIconProviders.contains(id),
-                  settings.enabledProviders.contains(id),
-                  let row = makeRow(for: id) else { continue }
-            out.append(row)
+                  settings.enabledProviders.contains(id) else { continue }
+            switch id {
+            case "codex":
+                guard let snap = env.latestRateLimits else { continue }
+                let five = snap.primary?.usedPercent
+                let seven = snap.secondary?.usedPercent
+                // Drop the provider entirely if neither window has
+                // a number — avoids "5h -- · 7d --" hogging width.
+                guard five != nil || seven != nil else { continue }
+                out.append(Row(tag: "CX",
+                               fiveHour: format(five),
+                               sevenDay: format(seven)))
+            case "claude":
+                guard let u = env.latestClaudeUsage else { continue }
+                let five = u.fiveHour?.usedPercent
+                let seven = u.sevenDay?.usedPercent
+                guard five != nil || seven != nil else { continue }
+                out.append(Row(tag: "CC",
+                               fiveHour: format(five),
+                               sevenDay: format(seven)))
+            default: break
+            }
         }
-        // Tag prefix only matters when there's more than one row to
-        // disambiguate. Single-provider mode keeps the line clean.
-        let multi = out.count > 1
-        return out.map { Row(
-            tag: $0.tag,
-            body: $0.body,
-            line: multi ? "\($0.tag) \($0.body)" : $0.body)
-        }
-    }
-
-    private func makeRow(for id: String) -> (tag: String, body: String)? {
-        switch id {
-        case "codex":
-            guard let snap = env.latestRateLimits else { return nil }
-            return composeRow(tag: "CX",
-                              fiveHour: snap.primary?.usedPercent,
-                              sevenDay: snap.secondary?.usedPercent)
-        case "claude":
-            guard let usage = env.latestClaudeUsage else { return nil }
-            return composeRow(tag: "CC",
-                              fiveHour: usage.fiveHour?.usedPercent,
-                              sevenDay: usage.sevenDay?.usedPercent)
-        default:
-            return nil
-        }
-    }
-
-    private func composeRow(tag: String,
-                            fiveHour: Double?,
-                            sevenDay: Double?) -> (tag: String, body: String)? {
-        // If both windows are absent, there's literally nothing to
-        // render for this provider — drop it so we don't waste space
-        // on "CC 5h -- · 7d --".
-        guard fiveHour != nil || sevenDay != nil else { return nil }
-        return (tag, "5h \(format(fiveHour)) · 7d \(format(sevenDay))")
+        return out
     }
 
     /// "23%" — clamped to 0...100, no decimals (the menu bar slot is
