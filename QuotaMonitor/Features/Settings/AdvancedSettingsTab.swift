@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 ///   - Claude Code: home path override + Keychain access policy
 ///   - Database: location + reveal in Finder
 ///   - Export: usage_events.csv dump
+///   - Pricing: LiteLLM sync + Restore Defaults (folded in from the
+///     deleted Pricing tab — power-user controls, not a top-level tab)
 ///
 /// **Why a separate tab:** the General tab was getting visually
 /// overwhelming with eight controls before this split. Pushing rare
@@ -19,6 +21,12 @@ struct AdvancedSettingsTab: View {
     @Environment(AppEnvironment.self) private var env
     @State private var exportStatus: String?
     @State private var exporting = false
+    @State private var pricingRows: [PricingCatalogRow] = []
+    @State private var pricingLoaded = false
+    @State private var refreshingPricing = false
+    @State private var restoringPricing = false
+    @State private var pricingStatusMessage: String?
+    @State private var pricingErrorMessage: String?
 
     var body: some View {
         @Bindable var settings = settings
@@ -124,9 +132,44 @@ struct AdvancedSettingsTab: View {
                     Text(exportStatus).font(.caption).foregroundStyle(.secondary)
                 }
             }
+
+            Section(L10n.settingsTabPricing) {
+                Text(lastPricingRefreshedLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button(L10n.pricingFetchLiteLLM) {
+                        Task { await refreshPricingFromLiteLLM() }
+                    }
+                    .disabled(restoringPricing || refreshingPricing)
+                    if refreshingPricing { ProgressView().controlSize(.small) }
+                    Spacer()
+                    Button(L10n.pricingRestoreDefaults) {
+                        Task { await restorePricingDefaults() }
+                    }
+                    .disabled(restoringPricing || refreshingPricing)
+                }
+                if let pricingStatusMessage {
+                    Text(pricingStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                } else if let pricingErrorMessage {
+                    Text(pricingErrorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding(20)
+        .task {
+            if !pricingLoaded {
+                pricingLoaded = true
+                await reloadPricing()
+            }
+        }
     }
 
     private func pathField(
@@ -166,6 +209,53 @@ struct AdvancedSettingsTab: View {
             exportStatus = L10n.exportedEventsTo(count, fileName: url.lastPathComponent)
         } catch {
             exportStatus = L10n.exportFailed(String(describing: error))
+        }
+    }
+
+    private var lastPricingRefreshedLabel: String {
+        let latest = pricingRows.compactMap { $0.fetchedAt }.max()
+        guard let latest, let date = ISO8601.parse(latest) else {
+            return L10n.neverRefreshed
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = LocalizationStore.activeLanguage.locale
+        formatter.unitsStyle = .short
+        return L10n.lastRefreshed(formatter.localizedString(for: date, relativeTo: Date()))
+    }
+
+    private func reloadPricing() async {
+        do {
+            pricingRows = try await env.loadPricingCatalog()
+        } catch {
+            pricingErrorMessage = String(describing: error)
+        }
+    }
+
+    private func restorePricingDefaults() async {
+        restoringPricing = true
+        defer { restoringPricing = false }
+        do {
+            try await env.restorePricingDefaults()
+            await reloadPricing()
+            pricingErrorMessage = nil
+            pricingStatusMessage = L10n.restoredSeedPrices
+        } catch {
+            pricingErrorMessage = String(describing: error)
+        }
+    }
+
+    private func refreshPricingFromLiteLLM() async {
+        refreshingPricing = true
+        defer { refreshingPricing = false }
+        do {
+            let updated = try await env.refreshPricingFromLiteLLM()
+            await reloadPricing()
+            pricingErrorMessage = nil
+            pricingStatusMessage = updated == 0
+                ? L10n.litellmNoMatch
+                : L10n.litellmUpdated(updated)
+        } catch {
+            pricingErrorMessage = L10n.litellmRefreshFailed(error.localizedDescription)
         }
     }
 }
