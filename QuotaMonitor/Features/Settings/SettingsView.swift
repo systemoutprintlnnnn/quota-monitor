@@ -37,7 +37,7 @@ struct SettingsView: View {
         .frame(minWidth: 480, idealWidth: 620, minHeight: 380, idealHeight: 520)
         // Make every Text in Settings copyable. textSelection is an
         // environment value that propagates to descendant Text views, so
-        // setting it once at the TabView root covers all three tabs and
+        // setting it once at the TabView root covers both tabs and
         // any future ones — easier than auditing every individual label.
         // Form controls (Toggle / Picker / Stepper labels) are unaffected
         // because they render as control text, not Text.
