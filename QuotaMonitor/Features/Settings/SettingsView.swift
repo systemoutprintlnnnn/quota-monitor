@@ -2,13 +2,15 @@ import SwiftUI
 
 // Top-level Settings window. Tab content lives in:
 //   - GeneralSettingsTab.swift   (Language, menu bar window, polling, notify)
-//   - PricingSettingsTab.swift   (LiteLLM sync + read-only catalog)
-//   - AdvancedSettingsTab.swift  (paths, keychain, database, CSV export)
+//   - AdvancedSettingsTab.swift  (CLI paths, keychain, database, CSV export,
+//                                  pricing sync + restore)
 //
-// **Why three tabs not two:** General stays short on purpose so first-
-// time users don't bounce off a wall of knobs. Pricing has its own tab
-// because the catalog table needs the full window width. Advanced
-// collects every "I know what I'm doing" toggle in one place.
+// **Why two tabs:** General stays short on purpose so first-time users
+// don't bounce off a wall of knobs. Advanced collects every "I know
+// what I'm doing" toggle in one place — including the LiteLLM pricing
+// sync, which used to live on its own tab around a read-only catalog
+// table. Dropping the table left two buttons that fit naturally in
+// Advanced.
 
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var env
@@ -21,9 +23,6 @@ struct SettingsView: View {
                 .environment(settings)
                 .environment(loc)
                 .tabItem { Label(L10n.settingsTabGeneral, systemImage: "gearshape") }
-            PricingSettingsTab()
-                .environment(env)
-                .tabItem { Label(L10n.settingsTabPricing, systemImage: "dollarsign.circle") }
             AdvancedSettingsTab()
                 .environment(settings)
                 .environment(env)
