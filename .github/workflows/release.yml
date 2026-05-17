@@ -1,0 +1,102 @@
+# Triggered on `v*` tag push. Runs tools/release.sh end-to-end on a
+# macos-15 runner and publishes a GitHub Release with the DMG + sha256
+# attached.
+#
+# Why this exists: tools/release.sh has always run the full pipeline
+# locally (tests → release build → DMG → mount-verify) but the final
+# `gh release create` was a hand-typed step. tests.yml runs on tag push
+# too, but only does `swift test` — no DMG, no release. This workflow
+# closes the gap so `git push origin v0.2.10` produces a published
+# release on its own.
+#
+# Failure handling: deliberately no auto-tag-deletion. If anything fails
+# the tag stays put so the developer can investigate, then either re-run
+# the failed job from the Actions UI, or delete + recut the tag manually
+# (git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z).
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write  # needed for `gh release create`
+
+# Don't cancel an in-flight release for the same tag — releases write
+# external state (GitHub Release, uploaded assets), cancelling mid-flight
+# could leave the release half-published.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # CHANGELOG.md is committed so depth=1 would suffice, but full
+          # history costs little on a single-job workflow and keeps `git`
+          # invocations inside release.sh well-behaved.
+          fetch-depth: 0
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version || true
+
+      - name: Verify tag matches Resources/VERSION
+        # Hard-fail if the pushed tag and the on-disk VERSION disagree.
+        # Catches the common slip of tagging without bumping VERSION —
+        # release.sh would otherwise happily build a DMG named after the
+        # file's version, not the tag's.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          echo "tag:  ${TAG_VERSION}"
+          echo "file: ${FILE_VERSION}"
+          if [[ "${TAG_VERSION}" != "${FILE_VERSION}" ]]; then
+            echo "::error::tag '${GITHUB_REF_NAME}' does not match Resources/VERSION '${FILE_VERSION}'"
+            exit 1
+          fi
+
+      - name: Run release pipeline
+        # tests + release build + DMG + sha256 + mount-verify self-check.
+        run: ./tools/release.sh
+
+      - name: Extract CHANGELOG section for this release
+        # Slice the `## [X.Y.Z] — YYYY-MM-DD` block out of CHANGELOG.md
+        # to feed `gh release create --notes-file`. Falls back to a stub
+        # if the section is missing — we don't want a forgotten changelog
+        # entry to block the release upload.
+        id: notes
+        run: |
+          VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          NOTES_FILE="$(mktemp -t release-notes)"
+          awk -v hdr="## [${VERSION}] " '
+            substr($0, 1, length(hdr)) == hdr { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "${NOTES_FILE}"
+          if [[ ! -s "${NOTES_FILE}" ]]; then
+            echo "::warning::no CHANGELOG section found for ${VERSION}, using stub"
+            echo "Release ${VERSION}. See CHANGELOG.md for details." > "${NOTES_FILE}"
+          fi
+          echo "path=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+          echo "---- release notes ----"
+          cat "${NOTES_FILE}"
+          echo "-----------------------"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          gh release create "${GITHUB_REF_NAME}" \
+            "dist/QuotaMonitor-${VERSION}.dmg" \
+            "dist/QuotaMonitor-${VERSION}.dmg.sha256" \
+            --title "QuotaMonitor ${VERSION}" \
+            --notes-file "${{ steps.notes.outputs.path }}"
