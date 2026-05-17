@@ -7,6 +7,27 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.9] — 2026-05-17
+
+### Fixed
+- **Claude token refresh no longer wedges on a server-revoked file
+  token.** 0.2.8's file-first ordering avoided the recurring Keychain
+  ACL prompt but exposed an adjacent failure: a token whose local
+  `expiresAtMs` is still in the future but which Anthropic has already
+  revoked (split-brain refresh from another client, manual logout on
+  web, etc.) kept getting handed back from the file shortcut. Every
+  poll re-sent the same dead token, `/usage` 401'd, the CLI refresh
+  trigger fired but didn't always produce a fresher Keychain item
+  (CLI cooldown, mdat-watch timeout) — and the next call returned
+  the exact same locally-fresh file token instead of consulting the
+  Keychain where the CLI may have already written a successor.
+  `ClaudeUsageClient` now tracks rejected tokens in a process-scoped
+  set: a credential counts as usable only when it's both locally
+  not-expired AND its access token hasn't been 401'd this run. The
+  401 handler inserts the just-used token; the 200 handler clears
+  the set. The file shortcut still skips the Keychain when the file
+  is genuinely fresh, but stops looping on a revoked token.
+
 ## [0.2.8] — 2026-05-16
 
 ### Fixed
