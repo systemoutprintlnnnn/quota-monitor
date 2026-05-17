@@ -1,4 +1,5 @@
-# Runs the swift-testing suite on every push and PR.
+# Runs the swift-testing suite plus a release-build smoke check on
+# every push and PR.
 #
 # Why a single workflow / single job: the project's main risk is upstream
 # wire-format drift (Codex CLI app-server JSON-RPC + Anthropic OAuth
@@ -6,6 +7,12 @@
 # the canary — running it on every push catches that drift before it
 # ships in a DMG. Dev box is CLT-only, so the dev `swift test` already
 # uses swift-testing (not XCTest); this workflow mirrors that exactly.
+#
+# The release-build step is the second canary: Swift 6 strict concurrency
+# + release-mode optimization occasionally surface issues that debug
+# (which is what `swift test` uses) misses. Catching them here keeps
+# the failure visible on the PR instead of waiting for a tag push to
+# invoke release.sh and finding out mid-DMG-build.
 #
 # macos-15 runner ships Swift 6 (Xcode 16.x) — the project requires
 # Swift 6 + StrictConcurrency, so an older runner image won't compile.
@@ -45,3 +52,11 @@ jobs:
         # its suite; cross-suite parallelism is fine but not needed for
         # an 8-second test run, and serial output is easier to read in CI.
         run: swift test
+
+      - name: swift build -c release (smoke)
+        # Belt-and-suspenders check: tests run in debug, but release
+        # optimization can expose problems debug never sees (implicit
+        # Sendable inference, @inlinable boundaries, etc). Compile only
+        # — no app bundle, no DMG. release.yml still does the full
+        # build + bundle + DMG on tag push.
+        run: swift build -c release
