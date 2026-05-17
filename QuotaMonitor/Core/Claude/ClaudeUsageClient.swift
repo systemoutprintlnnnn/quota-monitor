@@ -87,6 +87,16 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
     /// we trigger a CLI refresh. Avoids re-prompting the Keychain ACL on
     /// every poll.
     private var cachedToken: String?
+    /// Tokens the server has 401'd in this process run. Treated as expired
+    /// by `loadAccessToken` even when the source they came from claims
+    /// they're locally fresh — e.g. the file's `expiresAtMs` is still in
+    /// the future but Anthropic has already revoked the token server-side
+    /// (split-brain refresh from another client, manual logout on web,
+    /// etc.). Without this, the file-first shortcut would keep returning
+    /// the same dead token forever, never falling through to the Keychain
+    /// where the CLI may have written a fresh one. Cleared on the next
+    /// successful 200 so a long-lived auth bounce doesn't accumulate.
+    private var rejectedTokens: Set<String> = []
     /// Set to true when the user clicks "Deny" / cancels the prompt OR
     /// the keychain query returns auth-class errors. Stops us from asking
     /// again in this process.
@@ -136,12 +146,23 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
 
         switch http.statusCode {
         case 200:
+            // The token we just used works. Discard the rejection
+            // ledger so a brief auth bounce earlier in this run doesn't
+            // keep gating future reads against tokens that are once
+            // again valid.
+            rejectedTokens.removeAll()
             return try Self.decode(data: data, capturedAt: Date())
         case 401:
-            // Server says the token is bad. Drop the cache and ask the
-            // CLI to refresh once. If that doesn't produce a fresher
-            // token (CLI not installed, refresh-cooldown active, RT
-            // revoked → user must re-login) we surface .unauthorized.
+            // Server says the token is bad. Blacklist the exact token so
+            // the next `loadAccessToken` call doesn't keep handing it
+            // back from the locally-fresh file shortcut, and drop the
+            // cache. Then ask the CLI to refresh once. If that doesn't
+            // produce a fresher token (CLI not installed, refresh-cooldown
+            // active, RT revoked → user must re-login) we surface
+            // .unauthorized.
+            if let bad = cachedToken {
+                rejectedTokens.insert(bad)
+            }
             cachedToken = nil
             if !retryAfterRefresh, await refreshTrigger.triggerRefreshIfAllowed() {
                 return try await fetchInternal(retryAfterRefresh: true)
@@ -263,16 +284,20 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         // macOS's password prompt when the running binary's code
         // signature doesn't match the item's ACL — and ad-hoc dev
         // rebuilds invalidate that ACL on every launch. So skip the
-        // Keychain entirely when the file already holds a fresh token.
+        // Keychain entirely when the file already holds a fresh,
+        // not-server-rejected token.
         let fileCreds = Self.readStoredCredentialsFile()
-        if let f = fileCreds, !Self.isExpired(f) {
+        if let f = fileCreds, isUsable(f) {
             cachedToken = f.accessToken
             return f.accessToken
         }
 
-        // File missing or stale. Now we have to consult the Keychain.
+        // File missing, locally stale, or carrying a token the server
+        // has already 401'd. Consult the Keychain — the CLI writes
+        // refreshes there, so it may hold a newer token even when the
+        // file looks locally fresh.
         let kcCreds = readKeychainCredsIfAllowed()
-        if let k = kcCreds, !Self.isExpired(k) {
+        if let k = kcCreds, isUsable(k) {
             cachedToken = k.accessToken
             return k.accessToken
         }
@@ -290,11 +315,11 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
                 // possibly the file). Same file-first ordering — if the
                 // CLI rewrote the file we don't need to touch the
                 // Keychain again.
-                if let f = Self.readStoredCredentialsFile(), !Self.isExpired(f) {
+                if let f = Self.readStoredCredentialsFile(), isUsable(f) {
                     cachedToken = f.accessToken
                     return f.accessToken
                 }
-                if let k = readKeychainCredsIfAllowed(), !Self.isExpired(k) {
+                if let k = readKeychainCredsIfAllowed(), isUsable(k) {
                     cachedToken = k.accessToken
                     return k.accessToken
                 }
@@ -313,6 +338,13 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         }
 
         return nil
+    }
+
+    /// A credential is usable when it's not locally expired AND its
+    /// access token hasn't been rejected by the server during this
+    /// process run.
+    private func isUsable(_ creds: StoredCredentials) -> Bool {
+        !Self.isExpired(creds) && !rejectedTokens.contains(creds.accessToken)
     }
 
     /// Wraps `readKeychainTokenOutcome` in actor-state-aware error
