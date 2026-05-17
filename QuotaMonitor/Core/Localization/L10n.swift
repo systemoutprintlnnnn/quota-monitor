@@ -71,6 +71,14 @@ enum L10n {
     static var no5hBlockActive: String {
         t(en: "No active 5h block", zh: "当前无活跃的 5 小时窗口")
     }
+    /// Placeholder caption when Anthropic's /api/oauth/usage response
+    /// includes `seven_day` but omits `five_hour` — happens after the 5h
+    /// window resets and before the user prompts Claude again. We render
+    /// a quiet "5h · idle" row instead of hiding the slot entirely so the
+    /// 7d-only state doesn't read like a regression vs. Codex.
+    static var claude5hWindowIdle: String {
+        t(en: "No activity in current window", zh: "当前窗口空闲")
+    }
     static var last7Days: String { t(en: "Last 7 days", zh: "近 7 天") }
     /// Caption above the menu bar's headline $ — clarifies the figure is a
     /// rolling N-day API-equivalent total, not the user's actual bill.

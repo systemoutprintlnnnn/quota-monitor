@@ -140,6 +140,13 @@ extension MenuBarContentView {
         VStack(alignment: .leading, spacing: 6) {
             if let w = usage.fiveHour {
                 QuotaRow(title: L10n.quotaCardTitle5h, window: w, accent: .orange)
+            } else if usage.sevenDay != nil {
+                // Anthropic's /api/oauth/usage drops `five_hour` entirely
+                // after the window resets if the user hasn't prompted
+                // Claude yet — not a zero value, the key is absent. Show
+                // a greyed placeholder so the missing row doesn't read as
+                // a bug next to a healthy 7d row.
+                claude5hIdleRow()
             }
             if let w = usage.sevenDay {
                 QuotaRow(title: L10n.quotaCardTitle7d, window: w, accent: .orange)
@@ -154,6 +161,25 @@ extension MenuBarContentView {
                 QuotaRow(title: L10n.quotaCardTitle7dSonnet, window: w, accent: .orange)
             }
         }
+    }
+
+    /// Inactive-5h placeholder row. Title styled like a real QuotaRow title
+    /// (so vertical rhythm stays consistent with the 7d row below) but
+    /// rendered tertiary to signal "slot exists, no data". No progress bar,
+    /// no percent, no pace label — there's nothing to show until the API
+    /// starts including `five_hour` again.
+    @ViewBuilder
+    func claude5hIdleRow() -> some View {
+        HStack(spacing: 6) {
+            Text(L10n.quotaCardTitle5h)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.tertiary)
+            Spacer()
+            Text(L10n.claude5hWindowIdle)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
     }
 
     /// Fallback when OAuth credentials are unavailable. Same shape as the
