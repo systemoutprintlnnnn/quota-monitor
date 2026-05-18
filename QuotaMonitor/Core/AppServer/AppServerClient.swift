@@ -80,7 +80,8 @@ actor AppServerClient {
         return discoverViaLoginShell()
     }
 
-    private static func discoverViaLoginShell() -> String? {        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    private static func discoverViaLoginShell() -> String? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
         process.arguments = ["-ilc", "command -v codex"]
@@ -100,10 +101,50 @@ actor AppServerClient {
         }
     }
 
+    /// PATH the user's interactive login shell exports, computed once
+    /// per process. Captures whatever the user's dotfiles add — nvm,
+    /// asdf, rbenv, pyenv, manual prependers — so npm-installed `codex`
+    /// can satisfy its `#!/usr/bin/env node` shebang when node lives
+    /// under `~/.nvm/versions/node/<v>/bin` (a path we can't hardcode
+    /// since `<v>` is dynamic). Symptom of this being missing was the
+    /// poller logging `env: node: No such file or directory` and the
+    /// menu bar collapsing to the gauge fallback icon forever.
+    ///
+    /// Spawning a login shell costs ~100-300 ms. `static let` lazily
+    /// caches the result; nil means the probe failed and callers fall
+    /// back to just the hardcoded extras list.
+    static let loginShellPATH: String? = computeLoginShellPATH()
+
+    private static func computeLoginShellPATH() -> String? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        // `printf %s` with no trailing newline keeps the trim trivial.
+        // `-ilc` matches discoverViaLoginShell() so we get the same
+        // post-rc PATH the user would see in their own terminal.
+        process.arguments = ["-ilc", "printf %s \"$PATH\""]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return path.isEmpty ? nil : path
+        } catch {
+            return nil
+        }
+    }
+
     /// Build the environment we hand to spawned codex processes. Same idea
     /// as `resolveBinary()`'s candidate list: prepend well-known bin dirs
     /// to PATH so `#!/usr/bin/env node` shebangs and child shell-outs work
-    /// even when launchd handed us an empty PATH.
+    /// even when launchd handed us an empty PATH. We also splice in the
+    /// user's login-shell PATH so version-managed runtimes (nvm/asdf/…)
+    /// that live outside our hardcoded `extras` list are still reachable.
     private static func augmentedEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let home = env["HOME"] ?? NSHomeDirectory()
@@ -115,9 +156,10 @@ actor AppServerClient {
             "\(home)/.cargo/bin",
             "\(home)/.bun/bin",
         ]
+        let loginParts = (loginShellPATH ?? "").split(separator: ":").map(String.init)
         let existing = env["PATH"] ?? ""
         let existingParts = existing.split(separator: ":").map(String.init)
-        let merged = (extras + existingParts).reduce(into: [String]()) { acc, dir in
+        let merged = (extras + loginParts + existingParts).reduce(into: [String]()) { acc, dir in
             if !acc.contains(dir) { acc.append(dir) }
         }
         env["PATH"] = merged.joined(separator: ":")
