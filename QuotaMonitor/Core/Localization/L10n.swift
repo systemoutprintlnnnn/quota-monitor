@@ -468,7 +468,6 @@ enum L10n {
     static var sectionCodexCLI: String { "Codex CLI" }
     static var sectionClaudeCode: String { "Claude Code" }
     static var sectionRateLimitPolling: String { t(en: "Codex polling", zh: "Codex 轮询") }
-    static var sectionNotifications: String { t(en: "Notifications", zh: "通知") }
     /// Explainer under the Codex polling stepper. Calls out two things
     /// new users get wrong: (1) this only drives the Codex CLI quota
     /// fetch, not Claude; (2) Claude's interval is fixed at 2 h to avoid
@@ -513,10 +512,9 @@ enum L10n {
         t(en: "Never prompt (file only)", zh: "从不弹窗（仅文件）")
     }
 
-    // polling / notify
+    // polling
     static var interval: String { t(en: "Interval", zh: "间隔") }
     static func minutesShort(_ n: Int) -> String { t(en: "\(n) min", zh: "\(n) 分钟") }
-    static var notifyAt: String { t(en: "Notify at", zh: "通知阈值") }
 
     // pricing
     static var pricingRestoreDefaults: String { t(en: "Restore Defaults", zh: "恢复默认") }

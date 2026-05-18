@@ -5,7 +5,7 @@ import Observation
 //
 // Convention:
 //   - Empty string means "not set" / use auto-discovery.
-//   - Hot-reloadable settings (poll interval, threshold) are applied via
+//   - Hot-reloadable settings (poll interval) are applied via
 //     AppEnvironment.applySettings() right after the user edits them.
 //   - Path-changing settings (codex binary, codex home, claude home) currently
 //     take effect on next launch — we surface that in the UI so users aren't
@@ -29,9 +29,6 @@ final class SettingsStore {
     }
     var pollIntervalSeconds: Int {
         didSet { defaults.set(pollIntervalSeconds, forKey: Keys.pollInterval) }
-    }
-    var notifyThreshold: Double {
-        didSet { defaults.set(notifyThreshold, forKey: Keys.notifyThreshold) }
     }
     /// Controls whether `ClaudeUsageClient` is allowed to read the
     /// `Claude Code-credentials` keychain entry. First read may prompt
@@ -172,8 +169,6 @@ final class SettingsStore {
         self.claudeHomeOverride  = defaults.string(forKey: Keys.claudeHome) ?? ""
         let storedInterval = defaults.integer(forKey: Keys.pollInterval)
         self.pollIntervalSeconds = storedInterval > 0 ? storedInterval : 300
-        let storedThreshold = defaults.double(forKey: Keys.notifyThreshold)
-        self.notifyThreshold = storedThreshold > 0 ? storedThreshold : 85
         self.keychainPolicy = (defaults.string(forKey: Keys.keychainPolicy)
             .flatMap(KeychainPolicy.init(rawValue:))) ?? .fallback
         // Default false. We never default-on a security downgrade —
@@ -221,9 +216,9 @@ final class SettingsStore {
         //
         //  1. Base value. If `providerOnboardingDone` is stored, use it.
         //     Otherwise infer from "looks like an existing user" — i.e.
-        //     any of language / providers / poll interval / threshold
-        //     already set on this UserDefaults. Fresh installs alone
-        //     get `false` here and see the full onboarding.
+        //     any of language / providers / poll interval already set on
+        //     this UserDefaults. Fresh installs alone get `false` here
+        //     and see the full onboarding.
         //
         //  2. Version-gated reset. If `lastOnboardedVersion` is missing
         //     or strictly less than `onboardingResetMinVersion`, force
@@ -244,7 +239,6 @@ final class SettingsStore {
                 defaults.string(forKey: "app.language") != nil
                 || storedProviders != nil
                 || storedInterval > 0
-                || storedThreshold > 0
         }
         let lastOnboarded = defaults.string(forKey: Keys.lastOnboardedVersion)
         let resetGate = Self.shouldResetOnboarding(lastOnboarded: lastOnboarded)
@@ -378,10 +372,6 @@ final class SettingsStore {
             claudeHomeOverride: d.string(forKey: Keys.claudeHome) ?? "",
             pollIntervalSeconds: max(60, d.integer(forKey: Keys.pollInterval) > 0
                 ? d.integer(forKey: Keys.pollInterval) : 300),
-            notifyThreshold: {
-                let t = d.double(forKey: Keys.notifyThreshold)
-                return t > 0 ? t : 85
-            }(),
             keychainPolicy: (d.string(forKey: Keys.keychainPolicy)
                 .flatMap(KeychainPolicy.init(rawValue:))) ?? .fallback,
             mirrorClaudeKeychainToFile: d.bool(forKey: Keys.mirrorClaudeKeychainToFile),
@@ -394,7 +384,6 @@ final class SettingsStore {
         let codexHomeOverride: String
         let claudeHomeOverride: String
         let pollIntervalSeconds: Int
-        let notifyThreshold: Double
         let keychainPolicy: KeychainPolicy
         let mirrorClaudeKeychainToFile: Bool
         let enabledProviders: Set<String>
@@ -405,7 +394,6 @@ final class SettingsStore {
         static let codexHome      = "settings.codexHome"
         static let claudeHome     = "settings.claudeHome"
         static let pollInterval   = "settings.pollIntervalSeconds"
-        static let notifyThreshold = "settings.notifyThreshold"
         static let keychainPolicy = "settings.keychainPolicy"
         static let mirrorClaudeKeychainToFile = "settings.mirrorClaudeKeychainToFile"
         static let menuBarHeadlineWindow = "settings.menuBarHeadlineWindow"

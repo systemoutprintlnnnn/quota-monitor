@@ -134,7 +134,6 @@ final class AppEnvironment {
             await MainActor.run {
                 guard let self else { return }
                 self.latestRateLimits = snapshot
-                QuotaNotifier.shared.evaluate(snapshot: snapshot)
             }
         }
         self.poller = p
@@ -254,7 +253,6 @@ final class AppEnvironment {
         // poller: its endpoint is edge-rate-limited, the user's "every
         // 5 min" Codex preference would just earn 429s. It stays at the
         // 2 h cadence set in `startBackgroundPolling()`.
-        // QuotaNotifier reads threshold lazily on each evaluate(), no action needed.
     }
 
     // MARK: - actions
@@ -295,7 +293,6 @@ final class AppEnvironment {
                 await MainActor.run {
                     self.latestRateLimits = snapshot
                     self.lastRateLimitsRefreshAt = Date()
-                    QuotaNotifier.shared.evaluate(snapshot: snapshot)
                 }
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }

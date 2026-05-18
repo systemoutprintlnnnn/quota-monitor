@@ -1,11 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// General preferences. Deliberately kept short — only the three knobs
+/// General preferences. Deliberately kept short — only the two knobs
 /// regular users actually touch:
 ///   1. Language
 ///   2. Menu bar headline window (7d / 30d)
-///   3. Notifications threshold
 ///
 /// Path overrides, keychain policy, database location, CSV export, and
 /// the Codex rate-limit poll interval all moved to `AdvancedSettingsTab`
@@ -100,22 +99,6 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            // Notifications — single knob "ping me when usage hits X%".
-            // Polling interval that drives "when do we re-check usage"
-            // lives in Advanced because tuning it well requires knowing
-            // which provider it actually applies to (Codex only).
-            Section(L10n.sectionNotifications) {
-                LabeledContent(L10n.notifyAt) {
-                    HStack {
-                        Slider(value: $settings.notifyThreshold,
-                               in: 50...100, step: 5)
-                            .frame(maxWidth: 220)
-                        Text("\(Int(settings.notifyThreshold))%")
-                            .monospacedDigit()
-                            .frame(width: 44, alignment: .trailing)
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
         .padding(20)
