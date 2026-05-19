@@ -107,7 +107,7 @@ struct DashboardView: View {
                 Text(L10n.dashboardHeadlineStatline(
                     window: window,
                     usd: usdSum.formatted(.currency(code: "USD")),
-                    tokens: tokensSum.formatted(.number.notation(.compactName)),
+                    tokens: tokensSum.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)),
                     sessions: sessionsSum))
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)

@@ -4,6 +4,7 @@ import SwiftUI
 /// avoid being confused with Codex CLI's own "5-hour" quota row above.
 /// Replaces the standalone `AnthropicBlockMini` rounded card (pre-Day-23).
 struct Claude5hRow: View {
+    @Environment(SettingsStore.self) private var settings
     let block: BillingBlocks.Block
     let burn: BillingBlocks.BurnRate?
     let projection: BillingBlocks.Projection?
@@ -44,7 +45,8 @@ struct Claude5hRow: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(block.tokenCounts.total.formatted(.number.notation(.compactName)))
+                Text(block.tokenCounts.total.formatted(
+                    .number.notation(.compactName).locale(settings.tokenFormatLocale)))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }

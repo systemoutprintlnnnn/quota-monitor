@@ -83,6 +83,17 @@ final class SettingsStore {
         didSet { defaults.set(menuBarHeadlineWindow.rawValue,
                               forKey: Keys.menuBarHeadlineWindow) }
     }
+    /// Which language to render compact token suffixes in (`5.1B Token`
+    /// vs `51亿 Token`). The picker is hidden in English mode — there
+    /// is only one sensible answer (B/M/K) so the switch would be
+    /// confusing clutter. Chinese users see it in General → Appearance.
+    /// Default `.followLanguage`: zh renders 亿/万 to match the rest of
+    /// the UI, en stays on B/M/K. `.english` overrides zh back to B/M/K
+    /// for users who prefer the engineering convention.
+    var tokenUnitLanguage: TokenUnitLanguage {
+        didSet { defaults.set(tokenUnitLanguage.rawValue,
+                              forKey: Keys.tokenUnitLanguage) }
+    }
     /// Which provider's quota fills the menu-bar icon (one row per
     /// window: 5h + 7d, "X% used"). Multi-select — the user can show
     /// one provider, both side-by-side, or neither (in which case the
@@ -152,6 +163,42 @@ final class SettingsStore {
     /// preserved.
     nonisolated static let onboardingResetMinVersion = "0.2.7"
 
+    enum TokenUnitLanguage: String, CaseIterable, Sendable, Identifiable {
+        /// Use the same locale the rest of the UI is rendered in.
+        /// zh → 亿/万, en → B/M/K. Default.
+        case followLanguage
+        /// Force English-style compact suffixes (B/M/K) regardless of
+        /// the app language. For Chinese users who prefer the
+        /// engineering convention.
+        case english
+        var id: String { rawValue }
+    }
+
+    /// Locale to feed `.number.notation(.compactName).locale(...)` so all
+    /// token counts pick up the user's choice. Reading this in a view
+    /// body also subscribes that view to `tokenUnitLanguage` changes via
+    /// `@Observable`, so flipping the setting re-renders the affected
+    /// rows without a manual refresh.
+    var tokenFormatLocale: Locale {
+        switch tokenUnitLanguage {
+        case .english: return Locale(identifier: "en_US")
+        case .followLanguage: return LocalizationStore.shared.locale
+        }
+    }
+
+    /// Nonisolated read of `tokenFormatLocale` for code paths that can't
+    /// hop to MainActor (e.g. static `L10n` helpers). Pulls the stored
+    /// preference straight from UserDefaults and combines it with
+    /// `LocalizationStore.activeLanguage` (also nonisolated).
+    nonisolated static var tokenFormatLocaleNonisolated: Locale {
+        let stored = UserDefaults.standard.string(forKey: Keys.tokenUnitLanguage)
+            .flatMap(TokenUnitLanguage.init(rawValue:)) ?? .followLanguage
+        switch stored {
+        case .english: return Locale(identifier: "en_US")
+        case .followLanguage: return LocalizationStore.activeLanguage.locale
+        }
+    }
+
     enum KeychainPolicy: String, CaseIterable, Sendable, Identifiable {
         /// Try keychain only when the on-disk credentials file is missing
         /// or stale. Default — covers Claude CLI users without prompts.
@@ -198,6 +245,8 @@ final class SettingsStore {
             defaults.bool(forKey: Keys.showDockIconForWindows)
         self.menuBarHeadlineWindow = (defaults.string(forKey: Keys.menuBarHeadlineWindow)
             .flatMap(HeadlineWindow.init(rawValue:))) ?? .last7d
+        self.tokenUnitLanguage = (defaults.string(forKey: Keys.tokenUnitLanguage)
+            .flatMap(TokenUnitLanguage.init(rawValue:))) ?? .followLanguage
         // Enabled providers — defaults to the full set so an old build
         // upgrading to this binary keeps tracking both. We sanitise to
         // drop unknown tokens (future renames / deletions) and refuse
@@ -425,6 +474,7 @@ final class SettingsStore {
         static let mirrorClaudeKeychainToFile = "settings.mirrorClaudeKeychainToFile"
         static let showDockIconForWindows = "settings.showDockIconForWindows"
         static let menuBarHeadlineWindow = "settings.menuBarHeadlineWindow"
+        static let tokenUnitLanguage = "settings.tokenUnitLanguage"
         // Multi-select store (current). Persisted as `[String]`.
         static let menuBarIconProviders = "settings.menuBarIconProviders"
         // Legacy single-string key (pre-multi-select). Read-only — we

@@ -207,7 +207,7 @@ extension MenuBarContentView {
                     Text(stats.last7dValueUSD.formatted(.currency(code: "USD")))
                         .font(.caption2.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.green)
-                    Text("· \(stats.last7dTokens.formatted(.number.notation(.compactName)))")
+                    Text("· \(stats.last7dTokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)))")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
@@ -312,7 +312,7 @@ extension MenuBarContentView {
                             .help(L10n.headlineApiEquivalentHelp)
                         if stats.hasData {
                             Text(L10n.headlineTokensSuffix(
-                                headlineTokens.formatted(.number.notation(.compactName))))
+                                headlineTokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale))))
                                 .font(.title2.bold().monospacedDigit())
                                 .foregroundStyle(Color.primary)
                                 .help(L10n.headlineApiEquivalentHelp)

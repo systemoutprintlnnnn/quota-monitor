@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SessionDetailView: View {
+    @Environment(SettingsStore.self) private var settings
     let detail: SessionDetail
 
     var body: some View {
@@ -56,7 +57,7 @@ struct SessionDetailView: View {
                      detail.header.totalValueUSD.formatted(.currency(code: "USD")),
                      .green)
                 stat(L10n.kpiTokens,
-                     detail.header.totalTokens.formatted(.number.notation(.compactName)),
+                     detail.header.totalTokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)),
                      .blue)
                 stat(L10n.kpiEvents, "\(detail.header.eventCount)", .orange)
                 if let started = detail.header.startedAt {
@@ -174,6 +175,7 @@ struct SessionDetailView: View {
 }
 
 struct EventRow: View {
+    @Environment(SettingsStore.self) private var settings
     let event: SessionDetail.Event
 
     var body: some View {
@@ -219,7 +221,7 @@ struct EventRow: View {
     private func tokenChip(_ label: String, _ count: Int64, _ color: Color) -> some View {
         HStack(spacing: 3) {
             Text(label).foregroundStyle(.secondary)
-            Text(count.formatted(.number.notation(.compactName)))
+            Text(count.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)))
                 .foregroundStyle(color)
         }
         .font(.caption2.monospacedDigit())

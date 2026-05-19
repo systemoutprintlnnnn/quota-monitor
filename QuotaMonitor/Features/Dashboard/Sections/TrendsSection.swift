@@ -13,6 +13,7 @@ import Charts
 /// longer rendered either, but its underlying samples continue to be
 /// collected for future diagnostics.
 struct TrendsSection: View {
+    @Environment(SettingsStore.self) private var settings
     /// 60-day extension. We render the trailing N entries (selected via the
     /// `range` picker) as the chart and use the full 60 to compute the
     /// prior-period delta in `statline`.
@@ -141,7 +142,7 @@ struct TrendsSection: View {
             Text(point.valueUSD.formatted(.currency(code: "USD")))
                 .font(.callout.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.green)
-            Text(L10n.tokensCount(point.tokens.formatted(.number.notation(.compactName))))
+            Text(L10n.tokensCount(point.tokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale))))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
         }

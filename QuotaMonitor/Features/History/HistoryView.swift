@@ -116,6 +116,7 @@ struct HistoryView: View {
 // MARK: - Sidebar row
 
 private struct DayRowView: View {
+    @Environment(SettingsStore.self) private var settings
     let day: DaySummary
 
     var body: some View {
@@ -129,7 +130,7 @@ private struct DayRowView: View {
                     .foregroundStyle(.green)
             }
             HStack(spacing: 10) {
-                Label(day.tokens.formatted(.number.notation(.compactName)),
+                Label(day.tokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)),
                       systemImage: "number")
                 Label("\(day.sessionCount)", systemImage: "list.bullet.rectangle")
                 Label("\(day.eventCount)", systemImage: "circle.dotted")
@@ -144,6 +145,7 @@ private struct DayRowView: View {
 // MARK: - Detail view
 
 private struct DayDetailView: View {
+    @Environment(SettingsStore.self) private var settings
     let detail: DayDetail
 
     var body: some View {
@@ -170,7 +172,7 @@ private struct DayDetailView: View {
                      detail.summary.valueUSD.formatted(.currency(code: "USD")),
                      .green)
                 stat(L10n.kpiTokens,
-                     detail.summary.tokens.formatted(.number.notation(.compactName)),
+                     detail.summary.tokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)),
                      .blue)
                 stat(L10n.kpiSessions, "\(detail.summary.sessionCount)", .orange)
                 stat(L10n.kpiEvents, "\(detail.summary.eventCount)", .purple)
@@ -207,7 +209,7 @@ private struct DayDetailView: View {
                     }
                     ProgressView(value: pct).tint(.accentColor)
                     HStack(spacing: 12) {
-                        Label(share.tokens.formatted(.number.notation(.compactName)),
+                        Label(share.tokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)),
                               systemImage: "number")
                         Label(L10n.eventsCount(share.eventCount), systemImage: "list.bullet")
                     }
@@ -244,6 +246,7 @@ private struct DayDetailView: View {
 
 private struct ExpandableSessionRow: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(SettingsStore.self) private var settings
     let day: String
     let session: SessionRow
 
@@ -289,7 +292,7 @@ private struct ExpandableSessionRow: View {
                     Text(session.totalValueUSD.formatted(.currency(code: "USD")))
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(.green)
-                    Text(session.totalTokens.formatted(.number.notation(.compactName)))
+                    Text(session.totalTokens.formatted(.number.notation(.compactName).locale(settings.tokenFormatLocale)))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.blue)
                         .frame(width: 60, alignment: .trailing)

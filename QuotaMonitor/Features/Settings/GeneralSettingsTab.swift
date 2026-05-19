@@ -32,6 +32,29 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // English already renders B/M/K natively — there's
+                // nothing to flip — so the picker is Chinese-only.
+                // Keeping the row hidden in English mode avoids a
+                // useless control that would surface a setting whose
+                // both options produce identical output.
+                if loc.currentLanguage == .simplifiedChinese {
+                    LabeledContent(L10n.tokenUnitLanguageLabel) {
+                        Picker("", selection: $settings.tokenUnitLanguage) {
+                            Text(L10n.tokenUnitLanguageFollow)
+                                .tag(SettingsStore.TokenUnitLanguage.followLanguage)
+                            Text(L10n.tokenUnitLanguageEnglish)
+                                .tag(SettingsStore.TokenUnitLanguage.english)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 240, alignment: .trailing)
+                    }
+                    Text(L10n.tokenUnitLanguageHelp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section(L10n.sectionLanguage) {

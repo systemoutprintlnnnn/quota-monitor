@@ -311,7 +311,8 @@ enum L10n {
     }
 
     private static func formatCompact(_ v: Double) -> String {
-        v.formatted(.number.notation(.compactName))
+        v.formatted(.number.notation(.compactName)
+            .locale(SettingsStore.tokenFormatLocaleNonisolated))
     }
 
     static var kpiSessions: String { t(en: "Sessions", zh: "会话数") }
@@ -637,6 +638,22 @@ enum L10n {
     static var menuBarIconProviderHelpSingle: String {
         t(en: "Toggle whether this tool's 5h and 7d usage shows on the menu-bar icon, or leave it off to keep the gauge icon.",
           zh: "勾选则在菜单栏图标上显示该工具的 5 小时与 7 日使用率；不勾选则保留原本的表盘图标。")
+    }
+
+    // Token unit language picker (Chinese-only — English mode already
+    // uses B/M/K so there is nothing to choose).
+    static var tokenUnitLanguageLabel: String {
+        t(en: "Token unit language", zh: "Token 单位语言")
+    }
+    static var tokenUnitLanguageHelp: String {
+        t(en: "Controls the language of compact token counts. Follow language renders 亿/万 in Chinese mode; English forces B/M/K everywhere.",
+          zh: "控制 Token 数量的单位显示。跟随语言时中文显示 亿/万，英文显示 B/M/K。")
+    }
+    static var tokenUnitLanguageFollow: String {
+        t(en: "Follow language", zh: "跟随语言")
+    }
+    static var tokenUnitLanguageEnglish: String {
+        t(en: "English (B/M/K)", zh: "英文 (B/M/K)")
     }
 
     // MARK: - settings · advanced · uninstall
