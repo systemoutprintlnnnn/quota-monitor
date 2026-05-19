@@ -497,8 +497,11 @@ enum L10n {
     // per turn, so the user toggles their account-wide billing mode
     // here. ON means every GPT-5.5 / GPT-5.4 call is repriced at the
     // Fast tier (2.5× / 2× standard). History is recomputed on flip.
+    static var sectionCodexBilling: String {
+        t(en: "Codex Billing", zh: "Codex 计费")
+    }
     static var codexFastModeBillingLabel: String {
-        t(en: "Bill as Fast Mode", zh: "按 Fast Mode 计费")
+        t(en: "Codex Bill as Fast Mode", zh: "Codex 按 Fast Mode 计费")
     }
     static var codexFastModeBillingHelp: String {
         t(en: "Codex CLI doesn't record per-call tier, so this toggle is global. When ON, every GPT-5.5 call is priced at 2.5× standard and every GPT-5.4 call at 2× — including historical events. Leave OFF if you're on the standard tier.",
