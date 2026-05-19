@@ -109,6 +109,17 @@ enum L10n {
         t(en: "Time horizon for the headline $ + tokens line and the session count on each provider block.",
           zh: "每个 Provider 卡片上金额、Token 数与会话数所采用的时间范围。")
     }
+    static var showDockIconLabel: String {
+        t(en: "Show Dock icon when windows are open",
+          zh: "窗口打开时显示程序坞图标")
+    }
+    /// Caption under the toggle. Spells out the Cmd+Tab side effect
+    /// of the default-OFF behaviour so users don't think their
+    /// windows are broken when they can't ⌘Tab back into them.
+    static var showDockIconHelp: String {
+        t(en: "When off, QuotaMonitor stays in the menu bar only. The Dashboard and Settings windows will not appear in Cmd+Tab.",
+          zh: "关闭后 QuotaMonitor 完全只占菜单栏，但 Cmd+Tab 将切换不到 Dashboard 与设置窗口。")
+    }
     static func headlineWindowLabel(_ window: HeadlineWindow) -> String {
         switch window {
         case .last7d:  return t(en: "Last 7 days",  zh: "近 7 天")
@@ -464,6 +475,7 @@ enum L10n {
     static var settingsTabAdvanced: String { t(en: "Advanced", zh: "高级") }
 
     // sections
+    static var sectionAppearance: String { t(en: "Appearance", zh: "外观") }
     static var sectionLanguage: String { t(en: "Language", zh: "语言") }
     static var sectionCodexCLI: String { "Codex CLI" }
     static var sectionClaudeCode: String { "Claude Code" }
