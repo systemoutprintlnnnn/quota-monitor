@@ -396,15 +396,24 @@ final class AppEnvironment {
         }
     }
 
-    /// Promote the menu-bar app to a regular Dock-visible app so the
-    /// dashboard window can take key focus.
+    /// Bring a just-opened window (Dashboard / Settings / Onboarding)
+    /// forward over the menu-bar popover. When the user has
+    /// `showDockIconForWindows` ON, also promote to `.regular` so the
+    /// Dock icon appears and the app shows in Cmd+Tab. When OFF
+    /// (default), stay in `.accessory` — windows still get key focus
+    /// from `activate(ignoringOtherApps:)` alone.
     func activateForWindow() {
-        NSApp.setActivationPolicy(.regular)
+        if SettingsStore.shared.showDockIconForWindows {
+            NSApp.setActivationPolicy(.regular)
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Demote back to a menu-bar-only app once the last window closes.
+    /// No-op when `showDockIconForWindows` is OFF — we never promoted
+    /// past `.accessory` in the first place.
     func demoteToAccessory() {
+        guard SettingsStore.shared.showDockIconForWindows else { return }
         NSApp.setActivationPolicy(.accessory)
     }
 
