@@ -191,7 +191,10 @@ actor ClaudeCLIRefreshTrigger {
 
     /// Mirror of `AppServerClient.augmentedEnvironment` — duplicated
     /// here to keep the dependency direction one-way (Claude code
-    /// shouldn't import AppServer infrastructure).
+    /// shouldn't import AppServer infrastructure). See
+    /// `AppServerClient.loginShellPATH` for why we splice in the login
+    /// shell's PATH; the rationale (nvm-managed node, etc.) applies
+    /// the same way to `claude` since it's also an npm shell script.
     private static func augmentedEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         let home = env["HOME"] ?? NSHomeDirectory()
@@ -203,13 +206,40 @@ actor ClaudeCLIRefreshTrigger {
             "\(home)/.cargo/bin",
             "\(home)/.bun/bin",
         ]
+        let loginParts = (loginShellPATH ?? "").split(separator: ":").map(String.init)
         let existing = env["PATH"] ?? ""
         let existingParts = existing.split(separator: ":").map(String.init)
-        let merged = (extras + existingParts).reduce(into: [String]()) { acc, dir in
+        let merged = (extras + loginParts + existingParts).reduce(into: [String]()) { acc, dir in
             if !acc.contains(dir) { acc.append(dir) }
         }
         env["PATH"] = merged.joined(separator: ":")
         return env
+    }
+
+    /// Mirror of `AppServerClient.loginShellPATH` — same reason for the
+    /// duplication, same single-spawn-per-process caching via `static
+    /// let`.
+    private static let loginShellPATH: String? = computeLoginShellPATH()
+
+    private static func computeLoginShellPATH() -> String? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-ilc", "printf %s \"$PATH\""]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return path.isEmpty ? nil : path
+        } catch {
+            return nil
+        }
     }
 
     /// Probe the augmented PATH for an executable named `claude`.
