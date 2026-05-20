@@ -9,6 +9,7 @@ extension AppEnvironment {
     /// Fire a LiteLLM refresh if we've never fetched, or the latest fetched_at
     /// is older than 24h. Errors are swallowed (set on `lastError`).
     func refreshPricingIfStale(maxAge: TimeInterval = 24 * 3600) async {
+        DeveloperLog.info("refreshPricingIfStale started maxAge=\(maxAge)", category: "pricing")
         do {
             let (db, _) = try ensureServices()
             let latest = try await db.pool.read { conn -> Date? in
@@ -20,10 +21,15 @@ extension AppEnvironment {
                 return iso.flatMap(ISO8601.parse)
             }
             lastPricingFetchedAt = latest
-            if let latest, Date().timeIntervalSince(latest) < maxAge { return }
+            if let latest, Date().timeIntervalSince(latest) < maxAge {
+                DeveloperLog.info("refreshPricingIfStale skipped reason=fresh latest=\(latest)", category: "pricing")
+                return
+            }
+            DeveloperLog.info("refreshPricingIfStale refreshing latest=\(String(describing: latest))", category: "pricing")
             _ = try await refreshPricingFromLiteLLM()
         } catch {
             self.lastError = "LiteLLM refresh failed: \(error.localizedDescription)"
+            DeveloperLog.error("refreshPricingIfStale failed error=\(error.localizedDescription)", category: "pricing")
         }
     }
 
@@ -31,9 +37,13 @@ extension AppEnvironment {
     /// network/decode failure so the caller can surface it.
     @discardableResult
     func refreshPricingFromLiteLLM() async throws -> Int {
-        guard !isRefreshingPricing else { return 0 }
+        guard !isRefreshingPricing else {
+            DeveloperLog.info("refreshPricingFromLiteLLM skipped reason=already-refreshing", category: "pricing")
+            return 0
+        }
         isRefreshingPricing = true
         defer { isRefreshingPricing = false }
+        DeveloperLog.info("refreshPricingFromLiteLLM started", category: "pricing")
 
         let (db, _) = try ensureServices()
         let entries = try await pricingSource.fetch()
@@ -55,10 +65,14 @@ extension AppEnvironment {
         lastPricingFetchedAt = latest
         lastPricingUpdateCount = updated
         refreshDashboard()
+        DeveloperLog.info(
+            "refreshPricingFromLiteLLM succeeded updated=\(updated) latest=\(String(describing: latest))",
+            category: "pricing")
         return updated
     }
 
     func restorePricingDefaults() async throws {
+        DeveloperLog.info("restorePricingDefaults started", category: "pricing")
         let (db, _) = try ensureServices()
         let fastMode = SettingsStore.snapshot().codexFastModeBilling
         try await db.pool.write { conn in
@@ -67,6 +81,7 @@ extension AppEnvironment {
                 in: conn, codexFastModeBilling: fastMode)
         }
         refreshDashboard()
+        DeveloperLog.info("restorePricingDefaults succeeded fastMode=\(fastMode)", category: "pricing")
     }
 
     /// Re-price every event under the new Codex Fast-Mode setting and
@@ -75,6 +90,9 @@ extension AppEnvironment {
     /// `onChange`. Swallows errors into `lastError` rather than throwing
     /// so a transient DB hiccup doesn't crash the settings sheet.
     func applyCodexFastModeBilling() {
+        DeveloperLog.info(
+            "applyCodexFastModeBilling requested enabled=\(SettingsStore.shared.codexFastModeBilling)",
+            category: "pricing")
         Task {
             do {
                 let (db, _) = try ensureServices()
@@ -85,15 +103,18 @@ extension AppEnvironment {
                 }
                 refreshDashboard()
                 refreshMenuBar()
+                DeveloperLog.info("applyCodexFastModeBilling succeeded fastMode=\(fastMode)", category: "pricing")
             } catch {
                 self.lastError = "Codex Fast-Mode billing apply failed: \(error.localizedDescription)"
+                DeveloperLog.error("applyCodexFastModeBilling failed error=\(error.localizedDescription)", category: "pricing")
             }
         }
     }
 
     func loadPricingCatalog() async throws -> [PricingCatalogRow] {
+        DeveloperLog.info("loadPricingCatalog started", category: "pricing")
         let (db, _) = try ensureServices()
-        return try await db.pool.read { conn in
+        let rows = try await db.pool.read { conn in
             try Row.fetchAll(conn, sql: """
                 SELECT model_id, display_name,
                        input_price_per_million, cached_input_price_per_million,
@@ -118,5 +139,7 @@ extension AppEnvironment {
                     fetchedAt: row["fetched_at"])
             }
         }
+        DeveloperLog.info("loadPricingCatalog succeeded rows=\(rows.count)", category: "pricing")
+        return rows
     }
 }

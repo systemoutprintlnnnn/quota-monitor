@@ -1,22 +1,25 @@
 # Project survey — 2026-04-30
 
-After many rounds of incremental changes (Dashboard redesign, i18n, Claude poller hardening, menu bar UI churn), the project is functional but accumulating drag. Here's the lay of the land and the cuts I'd recommend.
+After many rounds of incremental changes (Dashboard redesign, i18n, Claude
+poller hardening, menu bar UI churn), the project was functional but
+accumulating drag. This file is a historical survey; the follow-up status at
+the bottom records what has since been executed.
 
-## The shape of things
+## Original shape (updated names)
 
 ```
-CodexMonitor/CodexMonitor/
-├── App/         CodexMonitorApp.swift, AppEnvironment.swift  (god-object, 522 LOC)
+QuotaMonitor/QuotaMonitor/
+├── App/         QuotaMonitorApp.swift, AppEnvironment.swift + controller extensions
 ├── Core/
 │   ├── Analytics/   Aggregator.swift (1187 LOC), BillingBlocks.swift
 │   ├── AppServer/   Codex CLI bridge
 │   ├── Claude/      Client + Poller + Snapshot + Hydrator (new)
 │   ├── Importer/    Codex + Claude JSONL ingestion
-│   ├── Localization/ L10n.swift (607 LOC, ~30% dead)
+│   ├── Localization/ L10n.swift
 │   ├── Models/      RateLimitSnapshot, QuotaPaceLabel
 │   ├── Pricing/     LiteLLM + catalog
 │   ├── RateLimits/  Codex poller, notifier
-│   ├── Settings/    SettingsStore (8 keys)
+│   ├── Settings/    SettingsStore
 │   └── Storage/     GRDB
 ├── Features/
 │   ├── Dashboard/   DashboardView + Sections/{Forecast, Trends, Composition}
@@ -29,7 +32,7 @@ CodexMonitor/CodexMonitor/
 └── Resources/
 ```
 
-## What's actually broken / vestigial
+## Original broken / vestigial list
 
 **Dead L10n entries (zero references)** — about 30 `static var` / `static func` accumulated as we removed UI:
 - `helpCodexPlanBadge`, `idleLimits(_:)`, `compositionBanner(model:percent:)` — recently-deleted UI fragments
@@ -43,16 +46,23 @@ CodexMonitor/CodexMonitor/
 
 **Settings keys with no live consumer**: `settings.codexMonthlyUSD`, `settings.claudeMonthlyUSD` — feeders for the deleted "payoff" KPI. Either delete the keys + UI rows, or wire them somewhere.
 
-## What scares me
+## Original risk list
 
-**Test coverage is essentially one file**: `Tests/CodexMonitorTests/ClaudeUsageDecoderTests.swift`. Zero tests for:
+**Original concern: test coverage was essentially one file**:
+`Tests/QuotaMonitorTests/ClaudeUsageDecoderTests.swift`. At the time there
+were zero tests for:
 - `Aggregator.swift` (1187 LOC of SQL — your `$XXX.XX` flow, monthly bucketing, burn-rate regression all untested)
 - `RolloutParser.swift` (Codex JSONL parsing for both <0.40 and ≥0.40 shapes — and we just changed it to derive titles from `cwd`)
 - `BillingBlocks.swift` (290 LOC of session-block math — drives the menu-bar 5h widget)
 - `ClaudeUsagePoller.swift` (back-off / `minimumGap` / `nextDelayOverride` — stateful and a known footgun)
 - `ClaudeUsageHydrator.swift` (just added; obvious round-trip test against `Poller.persist`)
 
-**`AppEnvironment.swift` (522 LOC) is a god-object**. 17 `@Observable` properties, 6 lazy services, methods for: poller wiring, manual refresh, scan kickoff, pricing fetching, CSV export, window-policy, and sessions/history query proxies. Realistic split: extract `PricingController`, `ScanController`, `QueryFacade`; leave `AppEnvironment` as live-snapshot store + poller wiring.
+**`AppEnvironment.swift` was a god-object**. It mixed poller wiring, manual
+refresh, scan kickoff, pricing fetching, CSV export, window-policy, and
+sessions/history query proxies. The first split has since landed:
+`PricingController`, `ScanController`, and `QueryFacade` now hold those
+extension methods, although `AppEnvironment.swift` is still large because it
+owns shared observable state and lifecycle wiring.
 
 **`Aggregator.swift` (1187 LOC) is one enum with everything**. Natural cuts: `AggregatorReports` (dashboard + monthly + daily + provider stats), `AggregatorSessions`, `AggregatorHistory`, `AggregatorRateLimits`.
 
@@ -82,12 +92,13 @@ CodexMonitor/CodexMonitor/
 | `ClaudeUsagePoller` | 7200s hard-coded; 60s minGap; 1800s/300s back-off | POST `/api/oauth/usage` | 429 NOT surfaced; auth errors do |
 | `ClaudeUsageHydrator` | once at boot | DB read | warms `latestClaudeUsage` |
 | `LiteLLM pricing fetch` | once at boot if >24h stale + manual | HTTP | yes |
-| `MenuBarExtra .task` | first popover open | `refresh*` ×3 + `startBackgroundPolling` | yes |
-| `MenuBar onChange(scenePhase==.active)` | every foreground | `refreshMenuBar` (DB only) | yes |
+| `QuotaMonitorApp` menu-bar scene `.task` | cold launch / scene creation | `refreshAll(throttle:false)` + `refreshDashboard` + `startBackgroundPolling` | yes |
+| `MenuBarContentView.onAppear` | every popover open | `refreshAll(throttle:true)` | yes |
 | `DashboardView .task` | view appear | `refreshDashboard` | yes |
-| `MenuBar Refresh button` | click | `refreshRateLimits` + `runScan` (NOT Claude) | yes |
+| `MenuBar Refresh button` | click | `refreshAll(throttle:false)` | yes |
+| `MainWindow` Reload button | click | bumps `reloadToken`, remounting Dashboard / History / Sessions | yes |
 
-## Recommendations, in priority order
+## Original recommendations, in priority order
 
 ### P0 — Bug-hunting safety nets (Do these first)
 1. **Aggregator burn-rate + 30d window regression test**. The `$XXX.XX` headline went wrong twice in three days. A single fixture test pinning `fetchPerProviderStats` against a seeded DB would catch the next drift.
@@ -110,11 +121,13 @@ CodexMonitor/CodexMonitor/
 12. `ClaudeUsageHydrator` round-trip test (after #3 above is in place — same test scaffolding).
 13. `Tests/` directory currently has only `ClaudeUsageDecoderTests.swift`; everything else is fixtures. Set a baseline expectation that new Core code ships with at least one fixture test.
 
-## What I'd do next session, concretely
+## Current follow-up status
 
-If you want me to start chipping away, the highest-leverage single sitting is **P0 #1 (Aggregator burn-rate test)** — it locks down the number that's most visible and most prone to silent drift. Second-highest is **P1 #4 (L10n purge)** — pure deletion, drops the largest file by ~150 LOC, no behavior change.
-
-Want me to proceed with either or both?
+The original "next session" recommendations are no longer pending. The
+mechanical safety-net and split work below was executed first, and later
+releases added onboarding, Dock-icon, pricing, uninstall, scan-progress, and
+Developer Mode coverage. Current passing test count is 130 under
+`Tests/QuotaMonitorTests/`.
 
 ---
 
@@ -123,12 +136,13 @@ Want me to proceed with either or both?
 User said "do it all", so this entire audit was executed in one sitting:
 
 **P0 (test safety net) — DONE**
-- `Tests/CodexMonitorTests/RolloutParserTests.swift` (6 tests) — pins title-from-cwd fallback, subagent metadata, cumulative→delta conversion, embedded rate-limit extraction, legacy gpt-5 fallback. Fixtures live under `Tests/CodexMonitorTests/Fixtures/Rollout/`.
-- `Tests/CodexMonitorTests/AggregatorTests.swift` (6 tests) — pins `fetchPerProviderStats` zero-fill, the 30d-window exclusive trailing edge, DISTINCT session_id counting, `fetchDaily` zero-fill ordering, `fetchProviderShares30d` always-emits-both, ProviderFilter clause restriction.
-- `Tests/CodexMonitorTests/ClaudeUsagePollerTests.swift` (9 tests) — pins minimumGap throttle, the 5min→30min 429 ladder, Retry-After honoured (clamped to 60s floor), auth-class errors surface to UI, 429 does NOT surface, success resets counters. Required adding `protocol ClaudeUsageFetching` + a few `_*ForTest` accessors on the actor.
-- `Tests/CodexMonitorTests/ClaudeUsageHydratorTests.swift` (5 tests) — round-trips all 4 windows, newest-sample-wins, opus/sonnet without plain secondary row, empty DB → nil, codex source_kind ignored.
+- `Tests/QuotaMonitorTests/RolloutParserTests.swift` — pins title-from-cwd fallback, subagent metadata, cumulative→delta conversion, embedded rate-limit extraction, legacy gpt-5 fallback. Fixtures live under `Tests/QuotaMonitorTests/Fixtures/Rollout/`.
+- `Tests/QuotaMonitorTests/AggregatorTests.swift` — pins `fetchPerProviderStats` zero-fill, the 30d-window exclusive trailing edge, DISTINCT session_id counting, `fetchDaily` zero-fill ordering, `fetchProviderShares30d` always-emits-both, ProviderFilter clause restriction.
+- `Tests/QuotaMonitorTests/ClaudeUsagePollerTests.swift` — pins minimumGap throttle, the 5min→30min 429 ladder, Retry-After honoured (clamped to 60s floor), auth-class errors surface to UI, 429 does NOT surface, success resets counters. Required adding `protocol ClaudeUsageFetching` + a few `_*ForTest` accessors on the actor.
+- `Tests/QuotaMonitorTests/ClaudeUsageHydratorTests.swift` — round-trips all 4 windows, newest-sample-wins, opus/sonnet without plain secondary row, empty DB → nil, codex source_kind ignored.
 
-Total test count went from **11 → 37**, all green.
+At that point, total test count went from **11 → 37**, all green. Current
+coverage has since grown to the 130-test count noted above.
 
 **P1 (deletion) — DONE**
 - L10n purge: ~50 dead entries removed (`L10n.swift` shrunk by ~150 LOC). Verified each via `grep` before deletion.

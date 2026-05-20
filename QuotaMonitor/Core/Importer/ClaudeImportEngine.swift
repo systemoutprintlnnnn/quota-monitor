@@ -21,6 +21,10 @@ import GRDB
 //        "usage": {
 //          "input_tokens": 1,
 //          "cache_creation_input_tokens": 1159,
+//          "cache_creation": {
+//             "ephemeral_1h_input_tokens": 1159,
+//             "ephemeral_5m_input_tokens": 0
+//          },
 //          "cache_read_input_tokens": 93669,
 //          "output_tokens": 710
 //        }
@@ -274,13 +278,17 @@ actor ClaudeImportEngine {
                         session_id, timestamp, model_id,
                         input_tokens, cached_input_tokens, output_tokens,
                         reasoning_output_tokens, total_tokens, value_usd,
-                        cache_creation_tokens, provider, model_inferred,
+                        cache_creation_tokens,
+                        cache_creation_5m_tokens, cache_creation_1h_tokens,
+                        provider, model_inferred,
                         provider_message_id
                     ) VALUES (
                         \(parsed.sessionId), \(evt.timestamp), \(evt.modelId),
                         \(evt.inputTokens), \(evt.cacheReadTokens), \(evt.outputTokens),
                         \(0), \(total), \(0.0),
-                        \(evt.cacheCreationTokens), \("claude"), \(false),
+                        \(evt.cacheCreationTokens),
+                        \(evt.cacheCreation5mTokens), \(evt.cacheCreation1hTokens),
+                        \("claude"), \(false),
                         \(evt.messageId)
                     )
                     """)
@@ -318,6 +326,8 @@ struct ClaudeUsageEvent {
     let inputTokens: Int64
     let cacheReadTokens: Int64
     let cacheCreationTokens: Int64
+    let cacheCreation5mTokens: Int64
+    let cacheCreation1hTokens: Int64
     let outputTokens: Int64
     /// `message.id` from the rollout. Used as the dedup key so that
     /// re-parsing the trailing slice during incremental scans is
@@ -419,6 +429,16 @@ enum ClaudeRolloutParser {
             let inputTokens = Self.int64(usage["input_tokens"]) ?? 0
             let cacheRead = Self.int64(usage["cache_read_input_tokens"]) ?? 0
             let cacheCreate = Self.int64(usage["cache_creation_input_tokens"]) ?? 0
+            let cacheCreationBreakdown = usage["cache_creation"] as? [String: Any]
+            let cacheCreate1h = Self.int64(
+                cacheCreationBreakdown?["ephemeral_1h_input_tokens"]) ?? 0
+            let cacheCreate5mRaw = Self.int64(
+                cacheCreationBreakdown?["ephemeral_5m_input_tokens"]) ?? 0
+            let splitTotal = cacheCreate1h + cacheCreate5mRaw
+            // Older Claude rollouts had only `cache_creation_input_tokens`.
+            // Treat any unclassified write tokens as 5-minute writes so we
+            // preserve the pre-split billing behavior instead of dropping cost.
+            let cacheCreate5m = cacheCreate5mRaw + max(cacheCreate - splitTotal, 0)
             let output = Self.int64(usage["output_tokens"]) ?? 0
             // Skip empty events (placeholder/system pings) BEFORE the
             // dedup check. Claude rollouts often emit two `assistant`
@@ -444,6 +464,8 @@ enum ClaudeRolloutParser {
                 inputTokens: inputTokens,
                 cacheReadTokens: cacheRead,
                 cacheCreationTokens: cacheCreate,
+                cacheCreation5mTokens: cacheCreate5m,
+                cacheCreation1hTokens: cacheCreate1h,
                 outputTokens: output,
                 messageId: messageId))
         }

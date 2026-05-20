@@ -5,6 +5,12 @@ struct MainWindowView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(SettingsStore.self) private var settings
     @State private var tab: Tab = .dashboard
+    /// Bumped by the toolbar Reload button. Folded into the inner view's
+    /// `.id(...)` so any tab the user is looking at gets re-mounted, which
+    /// in turn re-fires its `.task { refreshDashboard / reloadList }`.
+    /// Without this the Reload button only refreshed the Dashboard tab —
+    /// pressing it on History/Sessions did nothing.
+    @State private var reloadToken: Int = 0
 
     enum Tab: Hashable { case dashboard, history, sessions }
 
@@ -18,7 +24,10 @@ struct MainWindowView: View {
             case .sessions:  SessionsView()
             }
         }
-        .id(env.providerFilter)     // force inner views to reload state on switch
+        // Force inner views to reload state when:
+        //   - providerFilter changes (Dashboard/History/Sessions filter chip),
+        //   - Reload button is pressed (reloadToken bump).
+        .id("\(env.providerFilter.rawValue)-\(reloadToken)")
         .frame(minWidth: 820, minHeight: 560)
         .toolbar {
             // Provider filter — left side, compact menu. Filter cases
@@ -53,14 +62,19 @@ struct MainWindowView: View {
                 .fixedSize()
             }
 
-            // Reload — right.
+            // Reload — right. Bumps `reloadToken` so the inner view's
+            // `.id(...)` changes, which re-mounts whatever tab the user
+            // is on and re-fires its `.task`:
+            //   - Dashboard → refreshDashboard()
+            //   - History / Sessions → their own reloadList()
+            // SwiftUI cancels the prior `.task` on id change, so spam-
+            // clicking is safe; no explicit disabled gate needed.
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    env.refreshDashboard()
+                    reloadToken &+= 1
                 } label: {
                     Label(L10n.reload, systemImage: "arrow.clockwise")
                 }
-                .disabled(env.isLoadingDashboard)
                 .help(L10n.reload)
             }
         }

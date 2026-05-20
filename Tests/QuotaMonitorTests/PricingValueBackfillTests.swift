@@ -13,8 +13,9 @@ import GRDB
 ///
 ///   - codex formula: cached tokens are subtracted from input before
 ///     pricing (`MAX(input - cached, 0) * input_price + cached * cached_price …`)
-///   - claude formula: input/cached/cache_creation are billed independently
-///     (no subtraction)
+///   - claude formula: input/cached/cache_creation are billed independently,
+///     with 1h cache writes split from 5m writes when the importer has that
+///     breakdown
 ///   - rows with model_id NOT in pricing_catalog stay at their previous
 ///     value_usd (the WHERE EXISTS clause)
 ///   - second run is idempotent (math is deterministic)
@@ -74,6 +75,8 @@ struct PricingValueBackfillTests {
         modelId: String,
         input: Int64, cached: Int64,
         output: Int64, cacheCreation: Int64 = 0,
+        cacheCreation5m: Int64 = 0,
+        cacheCreation1h: Int64 = 0,
         seedValueUSD: Double = -1
     ) throws {
         let stamp = "2026-04-29T10:00:00Z"
@@ -95,14 +98,16 @@ struct PricingValueBackfillTests {
                 (session_id, timestamp, model_id,
                  input_tokens, cached_input_tokens, output_tokens,
                  reasoning_output_tokens, total_tokens, value_usd,
-                 provider, cache_creation_tokens, model_inferred)
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0)
+                 provider, cache_creation_tokens,
+                 cache_creation_5m_tokens, cache_creation_1h_tokens,
+                 model_inferred)
+                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0)
                 """, arguments: [
                     sid, stamp, modelId,
                     input, cached, output,
                     input + output + cacheCreation,
                     seedValueUSD,
-                    provider, cacheCreation
+                    provider, cacheCreation, cacheCreation5m, cacheCreation1h
                 ])
         }
     }
@@ -166,6 +171,49 @@ struct PricingValueBackfillTests {
         #expect(values.count == 1)
         #expect(abs(values[0] - 3.3525) < 1e-6,
                 "claude math expected 3.3525, got \(values[0])")
+    }
+
+    @Test("claude: 1h cache creation bills at 2x input, 5m cache creation uses catalog write rate")
+    func claudeCacheCreationDurationSplit() throws {
+        let db = try makeDatabase()
+        try insertPriceRow(in: db, modelId: "claude-opus-test",
+                           input: 5.00, cached: 0.50,
+                           output: 25.00, cacheCreation: 6.25)
+        try insertUsageEvent(in: db, provider: "claude",
+                             modelId: "claude-opus-test",
+                             input: 0, cached: 0, output: 0,
+                             cacheCreation: 2_000_000,
+                             cacheCreation5m: 1_000_000,
+                             cacheCreation1h: 1_000_000)
+
+        try db.pool.write { conn in
+            try PricingService.backfillAllValues(in: conn)
+        }
+        let values = try valueUSD(in: db)
+        #expect(values.count == 1)
+        #expect(abs(values[0] - 16.25) < 1e-6,
+                "5m: 1M * 6.25 + 1h: 1M * (5.00 * 2) = 16.25, got \(values[0])")
+    }
+
+    @Test("database initialization seeds Claude Opus 4.5 so imported usage can be priced")
+    func databaseInitializationSeedsClaudeOpus45() throws {
+        let db = try makeDatabase()
+
+        let row = try db.pool.read { conn in
+            try Row.fetchOne(conn, sql: """
+                SELECT input_price_per_million,
+                       cached_input_price_per_million,
+                       cache_creation_price_per_million,
+                       output_price_per_million
+                FROM pricing_catalog
+                WHERE model_id = 'claude-opus-4-5-20251101'
+                """)
+        }
+        #expect(row != nil)
+        #expect(abs((row?["input_price_per_million"] as Double? ?? 0) - 5.00) < 1e-6)
+        #expect(abs((row?["cached_input_price_per_million"] as Double? ?? 0) - 0.50) < 1e-6)
+        #expect(abs((row?["cache_creation_price_per_million"] as Double? ?? 0) - 6.25) < 1e-6)
+        #expect(abs((row?["output_price_per_million"] as Double? ?? 0) - 25.00) < 1e-6)
     }
 
     // MARK: - rows without a matching catalog row are left alone

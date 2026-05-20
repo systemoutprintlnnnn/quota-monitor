@@ -11,7 +11,6 @@ struct MenuBarContentView: View {
     @Environment(AppEnvironment.self) var env
     @Environment(SettingsStore.self) var settings
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.scenePhase) private var scenePhase
     @State var showingErrors = false
 
     var body: some View {
@@ -38,31 +37,27 @@ struct MenuBarContentView: View {
         // Text views, not text inside Button labels. Lets the user copy
         // a USD figure or a token count without screenshotting.
         .textSelection(.enabled)
-        // Refresh whenever the popover comes back into the foreground so
-        // the user always sees current stats without clicking Refresh.
-        // The button's three actions are mirrored here, but each carries
-        // a `minInterval` so popping the popover open three times in a
-        // row doesn't trigger three back-to-back JSONL scans + three
-        // app-server `/rateLimits/read` calls. The Refresh button itself
-        // still goes through with no gate (nil minInterval) because the
-        // user clicking it is explicit intent.
+        // Refresh whenever the popover opens so the user always sees
+        // current stats without clicking Refresh. `.onAppear` fires every
+        // time the popover is shown (MenuBarExtra `.window` style re-
+        // mounts the content view on each open). `.onChange(scenePhase)`
+        // used to live here but `scenePhase` is app-wide and doesn't
+        // change when the menu-bar popover toggles — that's why this
+        // hook silently did nothing unless the user had bounced to a
+        // different app and back.
         //
-        // refreshClaudeUsage / refreshMenuBar manage their own throttling
-        // internally (60s spam gap on the Claude poller, isLoadingMenuBar
-        // guard on the menu-bar reader) so they don't need an external
-        // gate here.
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+        // Routes through the same `refreshAll` as the Refresh button —
+        // the ONLY difference is `throttle: true`, which makes each step
+        // honour a minInterval so popping the popover open three times
+        // in a row doesn't trigger three back-to-back JSONL scans +
+        // three app-server `/rateLimits/read` calls.
+        .onAppear {
             // Onboarding gate — skip the auto-refresh fan-out entirely
             // while the wizard is up. AppEnvironment's per-method
             // guards would catch this too, but bailing at the source
-            // also avoids touching `SettingsStore.snapshot()` four
-            // times for a no-op.
+            // also avoids touching `SettingsStore.snapshot()` for a no-op.
             guard !settings.needsProviderOnboarding else { return }
-            env.refreshRateLimits(minInterval: 30)
-            env.refreshClaudeUsage()
-            env.runScan(minInterval: 20)
-            env.refreshMenuBar()
+            env.refreshAll(throttle: true)
         }
     }
 
@@ -111,17 +106,23 @@ struct MenuBarContentView: View {
                 // whether `refreshClaudeUsage()` actually goes through,
                 // so spam-clicking can't earn a 429.
                 //
-                // Both `isScanning` (file rescan) and `isRefreshingRateLimits`
-                // (Codex /rateLimits/read) feed the spinner + disabled state
-                // because runScan() and refreshRateLimits() flip independent
-                // flags but visually they are one operation to the user.
-                let busy = env.isScanning || env.isRefreshingRateLimits
-                Button(busy ? L10n.refreshing : L10n.refresh) {
-                    env.refreshRateLimits()
-                    env.refreshClaudeUsage()
-                    env.runScan() // tail of runScan() also calls refreshMenuBar()
+                // Button busy state is bound to `env.isScanning` — same
+                // source of truth as `ScanStatusView`'s progress bar.
+                // That way the button label and the progress bar appear
+                // / disappear together: if there's a progress bar, the
+                // button says "Refreshing…"; if the button says
+                // "Refresh", there's no progress bar.
+                //
+                // We deliberately don't OR in `isRefreshingRateLimits`:
+                // that call is sub-second and has its own ProgressView
+                // inside the Codex provider block, so adding it here
+                // would just cause the button to flicker briefly without
+                // the user being able to see a corresponding scan
+                // progress bar.
+                Button(env.isScanning ? L10n.refreshing : L10n.refresh) {
+                    env.refreshAll(throttle: false)
                 }
-                .disabled(busy)
+                .disabled(env.isScanning)
                 .keyboardShortcut("r")
                 Spacer()
                 Button(L10n.quit) { NSApplication.shared.terminate(nil) }

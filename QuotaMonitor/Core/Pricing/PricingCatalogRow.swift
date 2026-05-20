@@ -11,7 +11,7 @@ struct PricingCatalogRow: Sendable, Identifiable, Equatable {
     let inputPrice: Double          // per million tokens, USD
     let cachedInputPrice: Double
     let outputPrice: Double
-    let cacheCreationPrice: Double  // Claude-only (5x rate); 0 for OpenAI
+    let cacheCreationPrice: Double  // Claude 5m cache write; 0 for OpenAI
     let isOfficial: Bool
     let note: String?
     let sourceUrl: String

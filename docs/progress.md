@@ -1,7 +1,7 @@
 # CodexMonitor → QuotaMonitor — 进度跟踪
 
 跨会话持久化的项目进度档案。每次完成一个里程碑就更新本文件。
-最近更新：2026-05-07（Day-27 重命名 CodexMonitor → QuotaMonitor）
+最近更新：2026-05-20（Day-28 Developer Mode + refresh fan-out）
 
 ---
 
@@ -36,6 +36,7 @@
 | 25 | 配额行人话化 pace 文案 + Keychain 策略设置 | ✅ 已完成 |
 | 26 | 0.2.0 修复打包 + Claude refresh 委派给 CLI | ✅ 已完成 |
 | 27 | 重命名 CodexMonitor → QuotaMonitor（bundle id + DB + UserDefaults 自动迁移） | ✅ 已完成 |
+| 28 | Developer Mode 持久化日志 + refresh fan-out 对齐 | ✅ 已完成 |
 
 ---
 
@@ -731,3 +732,31 @@ b) **Refresh token 轮换的本质冲突无解**。Anthropic 的 OAuth 每次 re
 - `rm -rf /Applications/CodexMonitor.app`（旧装的菜单栏 app，已被 pkill；自动迁移把数据搬走了，删了无害）。
 - 等确认新 app 跑稳后：`defaults delete dev.tjzhou.CodexMonitor`（旧 plist 留着也只是占几 KB）。
 - `cp -R .build/QuotaMonitor.app /Applications/` 把新 app 装回 /Applications。
+
+---
+
+## Day-28 — Developer Mode + refresh fan-out 对齐 ✅
+
+**触发**：0.2.15 把首启扫描和大 JSONL 解析路径补强后，运行期问题还缺一个低摩擦取证面。普通 `OSLog` 适合实时 `log stream`，但不适合用户复现后把一段本地运行轨迹交给开发者分析。
+
+**Developer Mode**
+
+- 新增 `Core/DeveloperFileLogger.swift`：actor 串行追加纯文本日志，默认路径 `~/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log`。默认关闭；只有 Settings → Advanced → Developer Mode 开启后才写，切换动作本身强制写一行，方便确认开关确实生效。
+- Settings → Advanced 新增 Developer Mode section：开关、说明、可复制日志路径、Reveal Log File 按钮。文件不存在时按钮会先创建父目录并打开目录。
+- `SettingsStore` 增加 `developerModeEnabled` 持久化键和 `snapshot(defaults:)` 测试入口；新增 `DeveloperModeTests` 覆盖默认值、UserDefaults round-trip、snapshot 携带字段、关闭时不建文件、开启时创建父目录并追加、换行转义。
+- 记录面覆盖 app lifecycle、poller start/stop、Codex/Claude refresh、Claude CLI token refresh、scan progress、LiteLLM pricing、query facade、legacy DB/UserDefaults migration、CSV export、uninstall target/recycle、window activation policy。
+
+**Refresh fan-out / UI 行为**
+
+- `AppEnvironment.refreshAll(throttle:)` 成为唯一 fan-out：Codex rate limits、Claude usage、本地 JSONL scan 同一路径。Popover-open 传 `throttle: true`，Refresh 按钮和 cold launch 传 `false`。
+- `QuotaMonitorApp` cold launch 现在直接跑 `refreshAll(false)`，再额外 `refreshDashboard()` 暖缓存；老用户不需要先点开菜单栏才会扫描最新本地数据。
+- `MenuBarContentView` 从 `scenePhase` 改成 `.onAppear` 触发自动刷新。`MenuBarExtra(.window)` 每次打开都会重挂内容；`scenePhase` 是全 app 级别，之前不会随菜单弹窗开合变化。
+- Refresh 按钮不再因为被动 auto-refresh 的 `isScanning || isRefreshingRateLimits` 状态而变成 "Refreshing..." 或禁用；扫描进度统一由 `ScanStatusView` 的线性进度条表达，底层方法各自保留 re-entrancy guard。
+- MainWindow toolbar Reload 改成 bump `reloadToken` 并折进 inner view `.id(...)`，Dashboard / History / Sessions 当前 tab 都会重挂并重新跑自己的 `.task`，不再只有 Dashboard 有效。
+
+**文档同步**
+
+- README：Settings、Layout、日志分类、Developer Mode 路径、当前限制标题同步。
+- CHANGELOG：`[Unreleased]` 补 Developer Mode、refresh fan-out、popover-open hook、Reload 行为。
+- `docs/parity.md`：logging / settings 行补持久化 Developer Mode。
+- `docs/project-survey-2026-04-30.md`：追加当前状态，避免继续引用旧的 CodexMonitor 路径、旧测试数、旧 refresh 触发点。

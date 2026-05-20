@@ -192,7 +192,7 @@ enum L10n {
           zh: "\(scanned) 文件 · \(changed) 变更 · \(events) 事件")
     }
     static var scanIndexingTitle: String {
-        t(en: "Indexing local history", zh: "正在建立索引")
+        t(en: "Scanning local history", zh: "正在扫描本地记录")
     }
     static func scanProgressSummary(completed: Int, total: Int) -> String {
         if total > 0 {
@@ -521,6 +521,17 @@ enum L10n {
     }
     static var sectionDatabase: String { t(en: "Database", zh: "数据库") }
     static var sectionExport: String { t(en: "Export", zh: "导出") }
+    static var sectionDeveloperMode: String { t(en: "Developer Mode", zh: "开发者模式") }
+    static var developerModeLabel: String {
+        t(en: "Write diagnostics to a local file",
+          zh: "将诊断日志写入本地文件")
+    }
+    static var developerModeHelp: String {
+        t(en: "When enabled, app startup, refreshes, scans, pricing sync, queries, and settings changes are appended to a persistent log file. Turning this off deletes the existing developer log.",
+          zh: "开启后，应用启动、刷新、扫描、价格同步、查询与设置变更都会追加到持久化日志文件。关闭时会删除已有开发者日志。")
+    }
+    static var developerLogFileLabel: String { t(en: "Log file", zh: "日志文件") }
+    static var revealLogFile: String { t(en: "Reveal Log File", zh: "显示日志文件") }
 
     // language
     static var languagePickerLabel: String { t(en: "Display language", zh: "显示语言") }

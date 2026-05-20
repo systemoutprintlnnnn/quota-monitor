@@ -10,19 +10,28 @@ extension AppEnvironment {
     /// caller. Refresh button presses pass nil → always run, because the
     /// user expressing explicit intent should never be silently throttled.
     func runScan(minInterval: TimeInterval? = nil) {
-        guard !isScanning else { return }
+        guard !isScanning else {
+            DeveloperLog.info("runScan skipped reason=already-scanning", category: "scan")
+            return
+        }
         // Hard gate: don't touch ~/.codex or ~/.claude until the user
         // has finished onboarding. Same rationale as the network
         // refreshes in AppEnvironment — first-launch should see the
         // setup wizard before anything starts probing user folders.
-        guard SettingsStore.snapshot().hasCompletedProviderOnboarding else { return }
+        guard SettingsStore.snapshot().hasCompletedProviderOnboarding else {
+            DeveloperLog.info("runScan skipped reason=onboarding", category: "scan")
+            return
+        }
         if let interval = minInterval, let last = lastScanAt,
            Date().timeIntervalSince(last) < interval {
+            DeveloperLog.info("runScan skipped reason=throttled interval=\(interval)", category: "scan")
             return
         }
         isScanning = true
         lastError = nil
         let scanRunID = beginScanProgress()
+        let minIntervalLabel = minInterval.map { "\($0)" } ?? "none"
+        DeveloperLog.info("runScan started runID=\(scanRunID.uuidString) minInterval=\(minIntervalLabel)", category: "scan")
 
         Task { [weak self] in
             guard let self else { return }
@@ -38,6 +47,9 @@ extension AppEnvironment {
                 let snap = SettingsStore.snapshot()
                 let enabled = snap.enabledProviders
                 let fastMode = snap.codexFastModeBilling
+                DeveloperLog.info(
+                    "runScan providers=\(enabled.sorted().joined(separator: ",")) fastMode=\(fastMode)",
+                    category: "scan")
                 let progressHandler: ScanProgressHandler = { [weak self] update in
                     await MainActor.run {
                         self?.handleScanProgressUpdate(update, runID: scanRunID)
@@ -87,6 +99,9 @@ extension AppEnvironment {
                     self.lastScanReport = merged
                     self.lastScanAt = Date()
                 }
+                DeveloperLog.info(
+                    "runScan succeeded runID=\(scanRunID.uuidString) scanned=\(merged.scannedFiles) changed=\(merged.changedFiles) sessions=\(merged.importedSessions) events=\(merged.importedEvents) rateLimitSamples=\(merged.importedRateLimitSamples) errors=\(merged.errors.count)",
+                    category: "scan")
                 // runScan() typically fires from the popover (open +
                 // Refresh button). Always refresh the menu bar; only
                 // refresh the Dashboard when its window is actually
@@ -111,14 +126,16 @@ extension AppEnvironment {
                 }
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }
+                DeveloperLog.error("runScan failed runID=\(scanRunID.uuidString) error=\(String(describing: error))", category: "scan")
             }
         }
     }
 
     /// Stream all usage_events to a CSV file at `url`.
     func exportUsageEventsCSV(to url: URL) async throws -> Int {
+        DeveloperLog.info("exportUsageEventsCSV started path=\(url.path)", category: "export")
         let (db, _) = try ensureServices()
-        return try await db.pool.read { conn in
+        let count = try await db.pool.read { conn in
             let rows = try Row.fetchCursor(conn, sql: """
                 SELECT ue.id, ue.session_id, ue.timestamp, ue.model_id,
                        ue.input_tokens, ue.cached_input_tokens, ue.output_tokens,
@@ -159,6 +176,8 @@ extension AppEnvironment {
             }
             return count
         }
+        DeveloperLog.info("exportUsageEventsCSV succeeded path=\(url.path) rows=\(count)", category: "export")
+        return count
     }
 
     nonisolated static func mergeScanReports(
@@ -175,6 +194,7 @@ extension AppEnvironment {
 
     func beginScanProgress() -> UUID {
         let runID = UUID()
+        DeveloperLog.debug("beginScanProgress runID=\(runID.uuidString)", category: "scan")
         scanProgressRunID = runID
         scanProgressStates = [:]
         scanProgress = ScanProgress(
@@ -187,6 +207,9 @@ extension AppEnvironment {
 
     func handleScanProgressUpdate(_ update: ScanProgressUpdate, runID: UUID) {
         guard scanProgressRunID == runID, isScanning else { return }
+        DeveloperLog.debug(
+            "scanProgress runID=\(runID.uuidString) provider=\(update.provider) completed=\(update.completedFiles) total=\(update.totalFiles) file=\(update.currentFile ?? "")",
+            category: "scan")
         scanProgressStates[update.provider] = ScanProviderProgress(
             completedFiles: update.completedFiles,
             totalFiles: update.totalFiles,
@@ -196,11 +219,13 @@ extension AppEnvironment {
 
     func markScanPricing(runID: UUID) {
         guard scanProgressRunID == runID, isScanning else { return }
+        DeveloperLog.debug("scanProgress pricing runID=\(runID.uuidString)", category: "scan")
         scanProgress = Self.aggregateScanProgress(scanProgressStates, phase: .pricing)
     }
 
     func clearScanProgress(runID: UUID) {
         guard scanProgressRunID == runID else { return }
+        DeveloperLog.debug("clearScanProgress runID=\(runID.uuidString)", category: "scan")
         scanProgressStates = [:]
         scanProgressRunID = nil
         scanProgress = nil

@@ -83,7 +83,7 @@ enum Migrations {
         }
 
         // v2: extend pricing_catalog with LiteLLM-derived fields.
-        //   - cache_creation_price_per_million: Claude-only (5x rate). 0 for OpenAI models.
+        //   - cache_creation_price_per_million: Claude-only 5-minute cache write rate. 0 for OpenAI models.
         //   - above_*: tiered prices for >200k context (LiteLLM exposes these as
         //     `*_cost_per_token_above_200k_tokens`). Stored but not yet billed.
         //   - price_source: 'seed' | 'litellm' | 'local'. Locally-edited rows are
@@ -108,7 +108,7 @@ enum Migrations {
         //   - usage_events.provider = same; tagged at insert time so backfill
         //     can branch on Claude (cache_creation billing) vs OpenAI (cached
         //     read only) without joining sessions.
-        //   - usage_events.cache_creation_tokens = Claude-specific (5x rate);
+        //   - usage_events.cache_creation_tokens = Claude-specific cache write tokens;
         //     stays 0 for Codex/OpenAI events.
         migrator.registerMigration("v3-multi-provider") { db in
             try db.alter(table: "sessions") { t in
@@ -179,6 +179,31 @@ enum Migrations {
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_events_provider_message
                 ON usage_events(session_id, provider_message_id)
                 WHERE provider_message_id IS NOT NULL
+                """)
+        }
+
+        // v6: Claude cache creation duration split.
+        //   - Claude rollouts expose both `cache_creation_input_tokens` and
+        //     `usage.cache_creation.ephemeral_{5m,1h}_input_tokens`.
+        //   - The total stays in `cache_creation_tokens` for rollups; pricing
+        //     uses these split columns so 1h writes can bill at 2x input while
+        //     5m writes keep the catalog's cache_creation rate.
+        //   - Force a one-time full Claude re-read so existing imported rows
+        //     pick up the split instead of staying at the default zeros.
+        migrator.registerMigration("v6-claude-cache-creation-duration") { db in
+            try db.alter(table: "usage_events") { t in
+                t.add(column: "cache_creation_5m_tokens", .integer)
+                    .notNull().defaults(to: 0)
+                t.add(column: "cache_creation_1h_tokens", .integer)
+                    .notNull().defaults(to: 0)
+            }
+            try db.execute(sql: """
+                UPDATE import_state
+                SET file_size = -1,
+                    file_mtime_ms = -1,
+                    byte_offset = 0
+                WHERE source_path LIKE '%/.claude/projects/%'
+                   OR source_path LIKE '%/.config/claude/projects/%'
                 """)
         }
     }

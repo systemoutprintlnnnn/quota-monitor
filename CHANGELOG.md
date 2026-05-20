@@ -7,6 +7,39 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+- **Developer Mode persistent diagnostics.** Settings → Advanced now
+  includes a Developer Mode toggle that writes lifecycle, refresh,
+  scan, pricing, query, settings, migration, and uninstall diagnostics
+  to `~/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log`.
+  The file logger is off by default, creates its parent directory on
+  demand, escapes multiline messages, and exposes a "Reveal Log File"
+  button for support/debug sessions.
+
+### Changed
+- **Refresh fan-out is now centralized.** Cold launch, popover-open
+  auto-refresh, and the explicit Refresh button all route through the
+  same `refreshAll(throttle:)` path. Cold launch performs an immediate
+  full refresh + local scan and warms the Dashboard cache; popover-open
+  uses throttles; the button remains explicit user intent and bypasses
+  those throttles.
+- **Passive refresh feedback is less misleading.** The menu-bar
+  Refresh button no longer changes to "Refreshing..." or disables just
+  because a background scan started from opening the popover. Scan
+  status now lives in the progress row, while the refresh actions keep
+  their own re-entrancy guards.
+
+### Fixed
+- **Menu-bar auto-refresh now fires when the popover opens.**
+  `scenePhase` is app-wide and does not change just because a
+  `MenuBarExtra(.window)` popover is toggled, so the previous hook
+  silently missed the common open-popover path. The refresh now hangs
+  off `.onAppear`, which remounts on each popover open.
+- **Main-window Reload works outside Dashboard.** The toolbar Reload
+  button now remounts the active tab, so History and Sessions re-run
+  their own list-loading tasks instead of only refreshing the Dashboard
+  snapshot.
+
 ## [0.2.15] — 2026-05-20
 
 ### Fixed

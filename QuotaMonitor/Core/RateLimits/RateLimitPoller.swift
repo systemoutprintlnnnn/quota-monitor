@@ -62,9 +62,11 @@ actor RateLimitPoller {
             await onSnapshot(snapshot)
             try await persist(snapshot: snapshot)
             Log.poller.info("poll ok primary=\(snapshot.primary?.usedPercent ?? -1, privacy: .public)% secondary=\(snapshot.secondary?.usedPercent ?? -1, privacy: .public)%")
+            DeveloperLog.info("codex poll ok primary=\(snapshot.primary?.usedPercent ?? -1)% secondary=\(snapshot.secondary?.usedPercent ?? -1)%", category: "poller")
         } catch {
             // Swallow — connection blips happen. Next interval will retry.
             Log.poller.error("poll failed: \(String(describing: error), privacy: .public)")
+            DeveloperLog.error("codex poll failed error=\(String(describing: error))", category: "poller")
         }
     }
 

@@ -2,6 +2,12 @@
 
 Started: 2026-04-29 · Owner: Enter agent
 
+Status as of 2026-05-20: implemented. The Dashboard is still organized around
+Forecast / Trends / Composition, while current refresh behavior is now driven
+by `AppEnvironment.refreshAll(throttle:)` for menu-bar flows and
+`refreshDashboard()` for Dashboard-specific loading. The MainWindow Reload
+button remounts the active tab so History and Sessions refresh too.
+
 ## Goal
 
 The current Dashboard (`Features/Dashboard/DashboardView.swift`, 706 LOC) is a

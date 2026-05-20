@@ -281,9 +281,11 @@ actor AppServerClient {
         do {
             try process.run()
             Log.appServer.debug("launched \(self.binaryPath, privacy: .public) app-server pid=\(process.processIdentifier)")
+            DeveloperLog.debug("launched app-server binary=\(self.binaryPath) pid=\(process.processIdentifier)", category: "appserver")
         }
         catch {
             Log.appServer.error("launch failed: \(String(describing: error), privacy: .public)")
+            DeveloperLog.error("app-server launch failed binary=\(self.binaryPath) error=\(String(describing: error))", category: "appserver")
             throw ClientError.launchFailed(String(describing: error))
         }
 
@@ -303,11 +305,13 @@ actor AppServerClient {
                     if line.isEmpty { continue }
                     if let s = String(data: line, encoding: .utf8) {
                         Log.appServer.error("stderr: \(s, privacy: .public)")
+                        DeveloperLog.error("app-server stderr \(s)", category: "appserver")
                     }
                 }
             }
             if !buffer.isEmpty, let s = String(data: buffer, encoding: .utf8) {
                 Log.appServer.error("stderr: \(s, privacy: .public)")
+                DeveloperLog.error("app-server stderr \(s)", category: "appserver")
             }
         }
 

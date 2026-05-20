@@ -56,6 +56,8 @@ struct UsageEventRecord: Codable, FetchableRecord, PersistableRecord {
     var totalTokens: Int64
     var valueUsd: Double
     var cacheCreationTokens: Int64    // Claude-only; 0 for Codex
+    var cacheCreation5mTokens: Int64 = 0
+    var cacheCreation1hTokens: Int64 = 0
     var provider: String              // 'codex' | 'claude'
     var modelInferred: Bool           // true when parser fell back to gpt-5
     /// Stable per-message dedup key; today only Claude (`message.id`).
@@ -76,6 +78,8 @@ struct UsageEventRecord: Codable, FetchableRecord, PersistableRecord {
         case totalTokens = "total_tokens"
         case valueUsd = "value_usd"
         case cacheCreationTokens = "cache_creation_tokens"
+        case cacheCreation5mTokens = "cache_creation_5m_tokens"
+        case cacheCreation1hTokens = "cache_creation_1h_tokens"
         case provider
         case modelInferred = "model_inferred"
         case providerMessageId = "provider_message_id"

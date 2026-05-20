@@ -309,6 +309,7 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
         if fileCreds != nil || kcCreds != nil {
             if let exp = (fileCreds ?? kcCreds)?.expiresAtMs {
                 Log.poller.info("claude token expired (\(exp, privacy: .public)ms), asking CLI to refresh")
+                DeveloperLog.info("claude token expired expiresAtMs=\(exp); asking CLI to refresh", category: "poller")
             }
             if await refreshTrigger.triggerRefreshIfAllowed() {
                 // Re-read after the CLI updates the Keychain (and
@@ -437,9 +438,15 @@ actor ClaudeUsageClient: ClaudeUsageFetching {
                 [.posixPermissions: 0o600], ofItemAtPath: path)
             Log.poller.info(
                 "mirrored Claude credentials to \(path, privacy: .public) (expires \(new.expiresAtMs ?? 0, privacy: .public)ms)")
+            DeveloperLog.info(
+                "mirrored Claude credentials path=\(path) expiresAtMs=\(new.expiresAtMs ?? 0)",
+                category: "poller")
         } catch {
             Log.poller.error(
                 "failed to mirror Claude credentials to disk: \(error.localizedDescription, privacy: .public)")
+            DeveloperLog.error(
+                "failed to mirror Claude credentials error=\(error.localizedDescription)",
+                category: "poller")
         }
     }
 

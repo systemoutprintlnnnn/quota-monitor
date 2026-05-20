@@ -2,6 +2,8 @@
 
 **Date:** 2026-05-15
 **Status:** Approved (design)
+**Execution status:** Implemented in v0.2.8; v0.2.14 restored catalog
+inspection as an Advanced-sheet "View Catalog" action.
 
 ## Goal
 

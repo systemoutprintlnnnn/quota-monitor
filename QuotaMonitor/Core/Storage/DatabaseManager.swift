@@ -32,6 +32,9 @@ final class DatabaseManager: Sendable {
         var migrator = DatabaseMigrator()
         Migrations.register(in: &migrator)
         try migrator.migrate(pool)
+        try pool.write { db in
+            try PricingService.seedCatalog(in: db)
+        }
     }
 
     /// Default DB location: ~/Library/Application Support/QuotaMonitor/quotamonitor.sqlite
@@ -71,6 +74,7 @@ final class DatabaseManager: Sendable {
             try fm.createDirectory(at: newDir, withIntermediateDirectories: true)
         } catch {
             Log.storage.error("legacy DB migration: createDirectory failed: \(error.localizedDescription, privacy: .public)")
+            DeveloperLog.error("legacy DB migration createDirectory failed error=\(error.localizedDescription)", category: "storage")
             return
         }
 
@@ -87,6 +91,7 @@ final class DatabaseManager: Sendable {
                 moved += 1
             } catch {
                 Log.storage.error("legacy DB migration: failed to move \(from.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                DeveloperLog.error("legacy DB migration move failed from=\(from.path) to=\(to.path) error=\(error.localizedDescription)", category: "storage")
             }
         }
 
@@ -97,5 +102,6 @@ final class DatabaseManager: Sendable {
         }
 
         Log.storage.info("migrated legacy CodexMonitor DB → QuotaMonitor (\(moved, privacy: .public) files) at \(newDB.path, privacy: .public)")
+        DeveloperLog.info("migrated legacy CodexMonitor DB moved=\(moved) path=\(newDB.path)", category: "storage")
     }
 }

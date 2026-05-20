@@ -24,7 +24,7 @@ struct PricingEntry: Sendable, Hashable {
     let inputPricePerMillion: Double
     let cachedInputPricePerMillion: Double
     let outputPricePerMillion: Double
-    let cacheCreationPricePerMillion: Double    // Claude only; 0 for OpenAI
+    let cacheCreationPricePerMillion: Double    // Claude 5m cache write; 0 for OpenAI
     let effectiveModelId: String
     let isOfficial: Bool
     let note: String?
@@ -145,19 +145,25 @@ enum PricingSeed {
 
         // --- Anthropic Claude (placeholder seeds; LiteLLM refresh overwrites) ---
         // Seeded with public April-2026 list prices so first-launch values are
-        // sane even if LiteLLM is unreachable. cache_creation is filled by the
-        // dedicated migration column (5x rate), not represented in this struct
-        // — applyLiteLLMUpdate stamps it from `cache_creation_input_token_cost`.
+        // sane even if LiteLLM is unreachable. cache_creation_price_per_million
+        // stores the 5-minute cache write rate; 1-hour writes are computed
+        // separately as 2x base input during backfill.
         .init(modelId: "claude-opus-4-7", displayName: "Claude Opus 4.7",
-              inputPricePerMillion: 15.00, cachedInputPricePerMillion: 1.50, outputPricePerMillion: 75.00,
-              cacheCreationPricePerMillion: 18.75,
+              inputPricePerMillion: 5.00, cachedInputPricePerMillion: 0.50, outputPricePerMillion: 25.00,
+              cacheCreationPricePerMillion: 6.25,
               effectiveModelId: "claude-opus-4-7", isOfficial: false,
               note: "Seeded from public list price; refresh from LiteLLM for authoritative values.",
               sourceUrl: "https://www.anthropic.com/pricing"),
         .init(modelId: "claude-opus-4-6", displayName: "Claude Opus 4.6",
-              inputPricePerMillion: 15.00, cachedInputPricePerMillion: 1.50, outputPricePerMillion: 75.00,
-              cacheCreationPricePerMillion: 18.75,
+              inputPricePerMillion: 5.00, cachedInputPricePerMillion: 0.50, outputPricePerMillion: 25.00,
+              cacheCreationPricePerMillion: 6.25,
               effectiveModelId: "claude-opus-4-6", isOfficial: false,
+              note: "Seeded from public list price; refresh from LiteLLM for authoritative values.",
+              sourceUrl: "https://www.anthropic.com/pricing"),
+        .init(modelId: "claude-opus-4-5-20251101", displayName: "Claude Opus 4.5",
+              inputPricePerMillion: 5.00, cachedInputPricePerMillion: 0.50, outputPricePerMillion: 25.00,
+              cacheCreationPricePerMillion: 6.25,
+              effectiveModelId: "claude-opus-4-5-20251101", isOfficial: false,
               note: "Seeded from public list price; refresh from LiteLLM for authoritative values.",
               sourceUrl: "https://www.anthropic.com/pricing"),
         .init(modelId: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6",
@@ -387,8 +393,9 @@ enum PricingService {
     ///
     ///   - **claude**: the API breaks tokens out by category — `input_tokens`
     ///     is the **uncached** portion, `cache_read_input_tokens` is billed at
-    ///     the cached rate, `cache_creation_input_tokens` is billed at the 5x
-    ///     write rate. No subtraction needed.
+    ///     the cached rate, 5-minute `cache_creation_input_tokens` are billed
+    ///     at the catalog write rate, and 1-hour cache writes are billed at
+    ///     2x base input. No subtraction needed.
     ///
     /// When `codexFastModeBilling` is true, codex events whose model_id is in
     /// `CodexFastMode.multipliers` are JOINed against the synthetic
@@ -411,8 +418,20 @@ enum PricingService {
                           * pc.input_price_per_million
                        + usage_events.cached_input_tokens
                           * pc.cached_input_price_per_million
-                       + usage_events.cache_creation_tokens
+                       + CASE
+                           WHEN (usage_events.cache_creation_5m_tokens
+                                 + usage_events.cache_creation_1h_tokens) > 0
+                           THEN usage_events.cache_creation_5m_tokens
+                           ELSE usage_events.cache_creation_tokens
+                         END
                           * pc.cache_creation_price_per_million
+                       + CASE
+                           WHEN (usage_events.cache_creation_5m_tokens
+                                 + usage_events.cache_creation_1h_tokens) > 0
+                           THEN usage_events.cache_creation_1h_tokens
+                           ELSE 0
+                         END
+                          * (pc.input_price_per_million * 2.0)
                        + usage_events.output_tokens
                           * pc.output_price_per_million
                       ) / 1000000.0

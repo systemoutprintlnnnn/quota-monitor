@@ -10,6 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-19-dock-icon-toggle-design.md`
 
+**Execution status:** Implemented in v0.2.13. This file is now an archived
+implementation plan, not a pending checklist.
+
 ---
 
 ### Task 1: Add `showDockIconForWindows` to `SettingsStore` with persistence tests

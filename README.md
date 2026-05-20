@@ -57,12 +57,12 @@ shasum -c QuotaMonitor-<version>.dmg.sha256
     menu-bar display window, tracked tools toggle.
   - **Advanced** — Codex poll interval, Claude Keychain policy + optional
     credentials mirror, database location, CSV export, pricing catalog
-    (Sync from LiteLLM / Restore Defaults / View Catalog), in-app
-    uninstaller.
+    (Sync from LiteLLM / Restore Defaults / View Catalog), Developer Mode
+    diagnostics, in-app uninstaller.
 
 Languages: English (default) and 简体中文, hot-swappable.
 
-See `CHANGELOG.md` for the v0.1.0 feature list, `docs/parity.md` for the
+See `CHANGELOG.md` for the release history, `docs/parity.md` for the
 detailed comparison with codex-pacer, and `docs/findings.md` for the
 Codex CLI / Anthropic API quirks discovered along the way.
 
@@ -131,6 +131,7 @@ QuotaMonitor/
 │   ├── Settings/                   // SettingsStore + UserDefaultsMigration
 │   ├── Localization/               // L10n.swift + LocalizationStore
 │   ├── Models/                     // domain types
+│   ├── DeveloperFileLogger.swift   // optional persistent Developer Mode log
 │   └── Log.swift                   // OSLog categories
 ├── Features/
 │   ├── Dashboard/                  // Forecast + Trends + Composition
@@ -195,9 +196,19 @@ See `docs/findings.md`. Most important:
 log stream --predicate 'subsystem == "dev.tjzhou.QuotaMonitor"' --level info
 ```
 
-Categories: `appserver`, `importer`, `poller`, `pricing`, `storage`, `ui`.
+OSLog categories: `appserver`, `importer`, `poller`, `pricing`, `storage`,
+`ui`. Developer Mode uses the same operational areas plus `query`, `scan`,
+`settings`, `uninstall`, and `export`.
 
-## Limitations of v0.1.0
+For persistent local run logs, enable **Settings → Advanced → Developer
+Mode**. QuotaMonitor then appends lifecycle, refresh, scan, pricing, query,
+and settings diagnostics to:
+
+```text
+~/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log
+```
+
+## Current limitations
 
 - **Not notarized.** Distribute only to people willing to trust an ad-hoc
   signature (the Install section above explains the one-time bypass).

@@ -120,8 +120,10 @@ actor ImportEngine {
             errors: errors)
 
         Log.importer.info("scan ok scanned=\(report.scannedFiles) changed=\(report.changedFiles) sessions=\(report.importedSessions) events=\(report.importedEvents) samples=\(report.importedRateLimitSamples) errors=\(report.errors.count)")
+        DeveloperLog.info("import scan ok scanned=\(report.scannedFiles) changed=\(report.changedFiles) sessions=\(report.importedSessions) events=\(report.importedEvents) samples=\(report.importedRateLimitSamples) errors=\(report.errors.count)", category: "importer")
         for err in report.errors.prefix(5) {
             Log.importer.error("\(err, privacy: .public)")
+            DeveloperLog.error("import scan error \(err)", category: "importer")
         }
 
         return report

@@ -145,10 +145,12 @@ extension AppEnvironment {
     /// last-close. Adding plumbing to drain them cleanly would just
     /// be ceremony.
     func performUninstall() {
+        DeveloperLog.warning("performUninstall started", category: "uninstall")
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let targets = Self.uninstallTargets(
             home: home, bundleIDs: Self.uninstallBundleIDs)
+        DeveloperLog.warning("performUninstall targets=\(targets.count)", category: "uninstall")
 
         // 1. UserDefaults — flush the in-memory domain so even if
         //    `cfprefsd` had buffered writes pending, they won't
@@ -161,6 +163,7 @@ extension AppEnvironment {
         // 2. Files. `removeItem` throws on missing — swallow per call.
         for url in targets {
             try? fm.removeItem(at: url)
+            DeveloperLog.info("performUninstall removed target=\(url.path)", category: "uninstall")
         }
 
         // 3. Move trusted .app bundles to Trash via NSWorkspace.recycle.
@@ -173,6 +176,7 @@ extension AppEnvironment {
             home: home,
             runningBundleURL: Bundle.main.bundleURL,
             allowedBundleIDs: Self.uninstallBundleIDs)
+        DeveloperLog.warning("performUninstall recycling appBundles=\(appBundles.map(\.path).joined(separator: ","))", category: "uninstall")
         NSWorkspace.shared.recycle(appBundles) { _, _ in
             // Hop back to MainActor — recycle's completion handler
             // is documented as main-thread, but the closure isn't

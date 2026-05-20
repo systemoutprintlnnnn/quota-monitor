@@ -10,6 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-15-onboarding-menubar-step-design.md`
 
+**Execution status:** Implemented in v0.2.8. This file is now an archived
+implementation plan, not a pending checklist.
+
 ---
 
 ## File Structure

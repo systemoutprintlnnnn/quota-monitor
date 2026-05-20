@@ -103,6 +103,24 @@ struct ClaudeRolloutParserIncrementalTests {
         #expect(out.session?.events.first?.messageId == "abc-123")
     }
 
+    @Test("cache creation duration split is parsed from usage.cache_creation")
+    func cacheCreationDurationSplit() throws {
+        let url = try writeRollout(
+            """
+            {"type":"assistant","sessionId":"S1","timestamp":"2026-05-13T10:00:00.000Z","message":\
+            {"id":"cache-split","model":"claude-opus-4-7","usage":\
+            {"input_tokens":1,"cache_creation_input_tokens":30,\
+            "cache_read_input_tokens":4,"output_tokens":5,\
+            "cache_creation":{"ephemeral_1h_input_tokens":20,"ephemeral_5m_input_tokens":10}}}}
+            """ + "\n")
+        let out = try ClaudeRolloutParser.parse(fileURL: url)
+        let event = try #require(out.session?.events.first)
+
+        #expect(event.cacheCreationTokens == 30)
+        #expect(event.cacheCreation1hTokens == 20)
+        #expect(event.cacheCreation5mTokens == 10)
+    }
+
     // MARK: - 4. resuming past end-of-file is a clean no-op
 
     @Test("offset >= filesize parses nothing and returns the same offset")

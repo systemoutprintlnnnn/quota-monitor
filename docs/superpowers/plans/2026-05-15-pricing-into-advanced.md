@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-15-pricing-into-advanced-design.md`
 
+**Execution status:** Implemented in v0.2.8. v0.2.14 later added the
+Advanced-sheet catalog viewer back without restoring the old top-level
+Pricing tab.
+
 ---
 
 ### Task 1: Add Pricing section to AdvancedSettingsTab

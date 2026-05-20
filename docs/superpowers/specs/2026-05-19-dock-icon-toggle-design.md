@@ -2,6 +2,7 @@
 
 **Date:** 2026-05-19
 **Status:** Approved (design)
+**Execution status:** Implemented in v0.2.13.
 
 ## Goal
 

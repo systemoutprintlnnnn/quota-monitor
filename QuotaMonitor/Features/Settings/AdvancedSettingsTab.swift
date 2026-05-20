@@ -89,6 +89,28 @@ struct AdvancedSettingsTab: View {
             }
             }
 
+            Section(L10n.sectionDeveloperMode) {
+                Toggle(L10n.developerModeLabel,
+                       isOn: $settings.developerModeEnabled)
+                    .onChange(of: settings.developerModeEnabled) { _, enabled in
+                        DeveloperLog.modeChanged(enabled: enabled)
+                    }
+                Text(L10n.developerModeHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                LabeledContent(L10n.developerLogFileLabel) {
+                    Text(DeveloperLog.logFileURL.path)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                Button(L10n.revealLogFile) {
+                    revealDeveloperLog()
+                }
+            }
+
             Section(L10n.sectionDatabase) {
                 LabeledContent(L10n.location) {
                     Text(DatabaseManager.defaultURL().path)
@@ -248,5 +270,17 @@ struct AdvancedSettingsTab: View {
         } catch {
             pricingErrorMessage = L10n.litellmRefreshFailed(error.localizedDescription)
         }
+    }
+
+    private func revealDeveloperLog() {
+        let fileURL = DeveloperLog.logFileURL
+        let fm = FileManager.default
+        if fm.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            return
+        }
+        let dir = fileURL.deletingLastPathComponent()
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([dir])
     }
 }

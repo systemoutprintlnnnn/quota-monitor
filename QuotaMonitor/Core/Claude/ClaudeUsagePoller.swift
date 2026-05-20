@@ -155,6 +155,7 @@ actor ClaudeUsagePoller {
             let gapSec = Double(Self.minimumGap.components.seconds)
             if elapsed < gapSec {
                 Log.poller.info("claude /usage skipped — last attempt \(Int(elapsed), privacy: .public)s ago, min gap \(Int(gapSec), privacy: .public)s")
+                DeveloperLog.info("claude usage skipped reason=minimum-gap elapsed=\(Int(elapsed)) gap=\(Int(gapSec))", category: "poller")
                 return
             }
         }
@@ -165,6 +166,7 @@ actor ClaudeUsagePoller {
         if let until = cooldownUntil, until > now {
             let remaining = until.timeIntervalSince(now)
             Log.poller.info("claude /usage skipped — in 429 cooldown for \(Int(remaining), privacy: .public)s more")
+            DeveloperLog.info("claude usage skipped reason=rate-limit-cooldown remaining=\(Int(remaining))", category: "poller")
             return
         }
         lastAttemptAt = now
@@ -182,6 +184,7 @@ actor ClaudeUsagePoller {
             await onSnapshot(.success(snapshot))
             try await persist(snapshot: snapshot)
             Log.poller.info("claude /usage ok 5h=\(snapshot.fiveHour?.usedPercent ?? -1, privacy: .public)% 7d=\(snapshot.sevenDay?.usedPercent ?? -1, privacy: .public)%")
+            DeveloperLog.info("claude usage ok fiveHour=\(snapshot.fiveHour?.usedPercent ?? -1)% sevenDay=\(snapshot.sevenDay?.usedPercent ?? -1)%", category: "poller")
         } catch {
             // Track auth-class failures separately so the back-off only
             // triggers on persistent misconfig, not transient network errors.
@@ -206,11 +209,13 @@ actor ClaudeUsagePoller {
                 // transient, non-actionable signal. The cooldown callback
                 // gives the UI the actionable bit ("limited, retry in X").
                 Log.poller.info("claude /usage 429 (#\(self.consecutiveRateLimits, privacy: .public)), backing off \(seconds, privacy: .public)s")
+                DeveloperLog.info("claude usage rateLimited count=\(self.consecutiveRateLimits) backoffSeconds=\(seconds)", category: "poller")
                 return
             default:
                 await onSnapshot(.failure(error))
             }
             Log.poller.error("claude /usage failed: \(String(describing: error), privacy: .public)")
+            DeveloperLog.error("claude usage failed error=\(String(describing: error))", category: "poller")
         }
     }
 

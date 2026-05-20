@@ -102,6 +102,15 @@ final class SettingsStore {
         didSet { defaults.set(codexFastModeBilling,
                               forKey: Keys.codexFastModeBilling) }
     }
+    /// Developer diagnostics mode. When enabled, app lifecycle,
+    /// refresh, scan, pricing, query, and settings actions are mirrored
+    /// to a local plain-text file under Application Support so a dev can
+    /// inspect a run after the app exits. Default OFF: normal users
+    /// should not accumulate debug files silently.
+    var developerModeEnabled: Bool {
+        didSet { defaults.set(developerModeEnabled,
+                              forKey: Keys.developerModeEnabled) }
+    }
     /// Which provider's quota fills the menu-bar icon (one row per
     /// window: 5h + 7d, "X% used"). Multi-select — the user can show
     /// one provider, both side-by-side, or neither (in which case the
@@ -263,6 +272,7 @@ final class SettingsStore {
         // fresh installs and existing users (we don't enable Fast
         // billing for anyone who hasn't asked for it).
         self.codexFastModeBilling = defaults.bool(forKey: Keys.codexFastModeBilling)
+        self.developerModeEnabled = defaults.bool(forKey: Keys.developerModeEnabled)
         // Enabled providers — defaults to the full set so an old build
         // upgrading to this binary keeps tracking both. We sanitise to
         // drop unknown tokens (future renames / deletions) and refuse
@@ -456,7 +466,10 @@ final class SettingsStore {
 
     /// Read-only snapshot for non-MainActor callers (poller actor, etc.).
     nonisolated static func snapshot() -> Snapshot {
-        let d = UserDefaults.standard
+        snapshot(defaults: .standard)
+    }
+
+    nonisolated static func snapshot(defaults d: UserDefaults) -> Snapshot {
         let storedProviders = d.array(forKey: Keys.enabledProviders) as? [String]
         let sanitised: Set<String> = storedProviders.map {
             Set($0).intersection(knownProviders)
@@ -470,6 +483,7 @@ final class SettingsStore {
             mirrorClaudeKeychainToFile: d.bool(forKey: Keys.mirrorClaudeKeychainToFile),
             enabledProviders: providers,
             codexFastModeBilling: d.bool(forKey: Keys.codexFastModeBilling),
+            developerModeEnabled: d.bool(forKey: Keys.developerModeEnabled),
             // SettingsStore.init writes the resolved value to this key on
             // every launch (see `defaults.set(resolvedDone, …)` near the
             // tail of `init`), so a raw `bool(forKey:)` is correct here —
@@ -478,12 +492,17 @@ final class SettingsStore {
         )
     }
 
+    nonisolated static var developerModeEnabledNonisolated: Bool {
+        UserDefaults.standard.bool(forKey: Keys.developerModeEnabled)
+    }
+
     struct Snapshot: Sendable {
         let pollIntervalSeconds: Int
         let keychainPolicy: KeychainPolicy
         let mirrorClaudeKeychainToFile: Bool
         let enabledProviders: Set<String>
         let codexFastModeBilling: Bool
+        let developerModeEnabled: Bool
         let hasCompletedProviderOnboarding: Bool
     }
 
@@ -495,6 +514,7 @@ final class SettingsStore {
         static let menuBarHeadlineWindow = "settings.menuBarHeadlineWindow"
         static let tokenUnitLanguage = "settings.tokenUnitLanguage"
         static let codexFastModeBilling = "settings.codexFastModeBilling"
+        static let developerModeEnabled = "settings.developerModeEnabled"
         // Multi-select store (current). Persisted as `[String]`.
         static let menuBarIconProviders = "settings.menuBarIconProviders"
         // Legacy single-string key (pre-multi-select). Read-only — we

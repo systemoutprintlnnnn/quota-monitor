@@ -199,8 +199,33 @@ first when "the menu bar number is wrong."
   obviously wrong, and `release.sh` cross-checks the injected version
   against `VERSION` post-build. But anything that bypasses `build.sh`
   (e.g. running `swift build` directly + opening
-  `.build/.../CodexMonitor`) will produce an unversioned bundle.
+  `.build/.../QuotaMonitor`) will produce an unversioned bundle.
 - **Coverage today**: `release.sh` step 4 fails loud if the version
   inside the built `.app` doesn't match `VERSION`.
 - **Watch**: any new build entry point that skips `build.sh`.
 
+### 9. Developer Mode persistent log volume / privacy
+- **Why risky**: Developer Mode writes a local plain-text timeline under
+  `~/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log`.
+  It is intentionally broad enough to capture support evidence after the
+  app exits, so new call sites must avoid logging secrets, access tokens,
+  full request bodies, or unbounded user content.
+- **Coverage today**: `DeveloperModeTests` pins opt-in behavior, parent
+  directory creation, append format, and newline escaping. It does not
+  audit every future log message for sensitivity.
+- **Watch**: any new `DeveloperLog.*` call around OAuth credentials,
+  JSONL payload text, filesystem paths beyond expected app/session paths,
+  or large collections. Keep entries short, structured, and supportable.
+
+### 10. Refresh fan-out entry points
+- **Why risky**: cold launch, menu-bar popover open, explicit Refresh,
+  and Dashboard/History/Sessions reload are easy to drift apart. A user
+  normally judges "fresh" by the downstream UI, not by whether a single
+  poller actor accepted a request.
+- **Coverage today**: the implementation routes menu-bar refresh through
+  `AppEnvironment.refreshAll(throttle:)`, with separate throttling for
+  popover-open versus explicit/cold-launch intent. There is no end-to-end
+  UI automation test for the menu-bar popover lifecycle.
+- **Watch**: adding a new refresh trigger should usually call
+  `refreshAll(throttle:)` or explain why it deliberately refreshes only
+  one provider/surface.

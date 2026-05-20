@@ -29,6 +29,11 @@ struct QuotaMonitorApp: App {
         _environment = State(wrappedValue: AppEnvironment())
         _localization = State(wrappedValue: LocalizationStore.shared)
         _settings = State(wrappedValue: SettingsStore.shared)
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            ?? "unknown"
+        DeveloperLog.info(
+            "app launch version=\(version) logFile=\(DeveloperLog.logFileURL.path)",
+            category: "app")
     }
 
     var body: some Scene {
@@ -56,9 +61,16 @@ struct QuotaMonitorApp: App {
                 // dependency.
                 .id(localization.tickForceRedraw)
                 .task {
-                    environment.refreshRateLimits()
+                    // Same fan-out as the popover-open hook (rateLimits +
+                    // claudeUsage + scan, with scan's tail refreshing the
+                    // menu bar) so old users see freshly-scanned JSONL data
+                    // on launch without having to click the popover first.
+                    // No throttle: this is the cold-boot path, never repeated.
+                    environment.refreshAll(throttle: false)
+                    // Warm the Dashboard cache so first-open is instant.
+                    // refreshAll already covers menu bar + scan; this only
+                    // adds the heavier aggregator query.
                     environment.refreshDashboard()
-                    environment.refreshMenuBar()
                     environment.startBackgroundPolling()
                 }
         } label: {

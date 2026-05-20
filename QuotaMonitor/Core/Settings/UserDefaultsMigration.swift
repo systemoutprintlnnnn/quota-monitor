@@ -67,6 +67,9 @@ enum UserDefaultsMigration {
         // count is useful for the smoke test. Use os_log directly via
         // the existing subsystem.
         if copied > 0 {
+            DeveloperLog.info(
+                "UserDefaultsMigration copied=\(copied) legacyBundleID=\(legacyBundleID)",
+                category: "settings")
             // Print to stderr too so a `swift test` invocation surfaces
             // it without needing log show.
             FileHandle.standardError.write(Data(
