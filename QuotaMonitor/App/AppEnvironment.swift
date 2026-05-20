@@ -35,6 +35,7 @@ final class AppEnvironment {
     /// the button looks unresponsive.
     var latestClaudeUsageCooldownUntil: Date?
     var lastScanReport: ImportEngine.ScanReport?
+    var scanProgress: ScanProgress?
     var dashboardSnapshot: DashboardSnapshot?
     var billingBlocks: BillingBlocks.Snapshot?
     /// Provider-agnostic snapshot for the menu bar.
@@ -48,6 +49,8 @@ final class AppEnvironment {
     /// dropped. At most one queued re-run — `true` stays `true` whether
     /// 1 or 10 calls arrived during the in-flight window.
     private var menuBarRefreshPending = false
+    var scanProgressStates: [String: ScanProviderProgress] = [:]
+    var scanProgressRunID: UUID?
     var isRefreshingRateLimits = false
     var isScanning = false
     var isLoadingDashboard = false

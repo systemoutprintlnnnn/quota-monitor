@@ -13,12 +13,6 @@ enum RolloutEvent {
     case other(type: String, timestamp: String?)
 }
 
-struct RolloutLine: Decodable {
-    let timestamp: String?
-    let type: String
-    let payload: JSONValue?
-}
-
 // MARK: - session_meta
 
 struct SessionMetaPayload: Decodable {
@@ -180,41 +174,197 @@ extension RolloutEvent {
     /// returns `.other` for unknown discriminators.
     static func decode(line: Data) -> RolloutEvent? {
         guard !line.isEmpty else { return nil }
-        let decoder = JSONDecoder()
-        guard let envelope = try? decoder.decode(RolloutLine.self, from: line) else {
+        guard let type = RolloutLineScanner.stringValue(forKey: "type", in: line) else {
             return nil
         }
+        let timestamp = RolloutLineScanner.stringValue(forKey: "timestamp", in: line)
+        let decoder = JSONDecoder()
 
-        let payloadData: Data? = envelope.payload.flatMap {
-            try? JSONEncoder().encode($0)
-        }
-
-        switch envelope.type {
+        switch type {
         case "session_meta":
-            guard let data = payloadData,
+            guard let data = RolloutLineScanner.objectValue(forKey: "payload", in: line),
                   let meta = try? decoder.decode(SessionMetaPayload.self, from: data)
-            else { return .other(type: envelope.type, timestamp: envelope.timestamp) }
-            return .sessionMeta(meta, timestamp: envelope.timestamp)
+            else { return .other(type: type, timestamp: timestamp) }
+            return .sessionMeta(meta, timestamp: timestamp)
 
         case "turn_context":
-            guard let data = payloadData,
+            guard let data = RolloutLineScanner.objectValue(forKey: "payload", in: line),
                   let tc = try? decoder.decode(TurnContextPayload.self, from: data)
-            else { return .other(type: envelope.type, timestamp: envelope.timestamp) }
-            return .turnContext(tc, timestamp: envelope.timestamp)
+            else { return .other(type: type, timestamp: timestamp) }
+            return .turnContext(tc, timestamp: timestamp)
 
         case "event_msg":
             // Nested discriminator — only token_count matters for usage.
-            guard let payload = envelope.payload,
-                  case .object(let dict) = payload,
-                  case .string(let inner) = dict["type"] ?? .null,
-                  inner == "token_count",
-                  let data = payloadData,
+            guard let data = RolloutLineScanner.objectValue(forKey: "payload", in: line),
+                  RolloutLineScanner.stringValue(forKey: "type", in: data) == "token_count",
                   let tc = try? decoder.decode(TokenCountPayload.self, from: data)
-            else { return .other(type: envelope.type, timestamp: envelope.timestamp) }
-            return .tokenCount(tc, timestamp: envelope.timestamp)
+            else { return .other(type: type, timestamp: timestamp) }
+            return .tokenCount(tc, timestamp: timestamp)
 
         default:
-            return .other(type: envelope.type, timestamp: envelope.timestamp)
+            return .other(type: type, timestamp: timestamp)
         }
     }
+}
+
+private enum RolloutLineScanner {
+    static func stringValue(forKey key: String, in data: Data) -> String? {
+        guard let range = valueRange(forKey: key, in: data),
+              range.lowerBound < range.upperBound,
+              data[range.lowerBound] == quote
+        else { return nil }
+        return decodeStringLiteral(range, in: data)
+    }
+
+    static func objectValue(forKey key: String, in data: Data) -> Data? {
+        guard let range = valueRange(forKey: key, in: data),
+              range.lowerBound < range.upperBound,
+              data[range.lowerBound] == openBrace
+        else { return nil }
+        return data.subdata(in: range)
+    }
+
+    private static func valueRange(forKey key: String, in data: Data) -> Range<Int>? {
+        let keyBytes = Array(key.utf8)
+        return data.withUnsafeBytes { raw -> Range<Int>? in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else {
+                return nil
+            }
+            let count = raw.count
+            var index = skipWhitespace(base, 0, count)
+            guard index < count, base[index] == openBrace else { return nil }
+            index += 1
+
+            while index < count {
+                index = skipWhitespaceAndCommas(base, index, count)
+                if index >= count || base[index] == closeBrace { return nil }
+                guard let keyLiteral = scanString(base, index, count) else { return nil }
+                let keyMatches = !keyLiteral.hadEscape
+                    && bytesEqual(base, keyLiteral.content, keyBytes)
+                index = skipWhitespace(base, keyLiteral.next, count)
+                guard index < count, base[index] == colon else { return nil }
+                index = skipWhitespace(base, index + 1, count)
+                guard let valueEnd = skipValue(base, index, count) else { return nil }
+                if keyMatches { return index..<valueEnd }
+                index = valueEnd
+            }
+            return nil
+        }
+    }
+
+    private static func decodeStringLiteral(_ range: Range<Int>, in data: Data) -> String? {
+        let literal = data.subdata(in: range)
+        if literal.contains(backslash) {
+            return try? JSONDecoder().decode(String.self, from: literal)
+        }
+        guard range.count >= 2 else { return nil }
+        return String(decoding: data[(range.lowerBound + 1)..<(range.upperBound - 1)],
+                      as: UTF8.self)
+    }
+
+    private static func scanString(
+        _ base: UnsafePointer<UInt8>, _ start: Int, _ count: Int
+    ) -> (content: Range<Int>, literal: Range<Int>, hadEscape: Bool, next: Int)? {
+        guard start < count, base[start] == quote else { return nil }
+        var index = start + 1
+        var escaped = false
+        var hadEscape = false
+        while index < count {
+            let byte = base[index]
+            if escaped {
+                escaped = false
+            } else if byte == backslash {
+                hadEscape = true
+                escaped = true
+            } else if byte == quote {
+                return ((start + 1)..<index, start..<(index + 1), hadEscape, index + 1)
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static func skipValue(
+        _ base: UnsafePointer<UInt8>, _ start: Int, _ count: Int
+    ) -> Int? {
+        guard start < count else { return nil }
+        switch base[start] {
+        case quote:
+            return scanString(base, start, count)?.next
+        case openBrace, openBracket:
+            var depth = 0
+            var index = start
+            while index < count {
+                switch base[index] {
+                case quote:
+                    guard let str = scanString(base, index, count) else { return nil }
+                    index = str.next
+                    continue
+                case openBrace, openBracket:
+                    depth += 1
+                case closeBrace, closeBracket:
+                    depth -= 1
+                    if depth == 0 { return index + 1 }
+                default:
+                    break
+                }
+                index += 1
+            }
+            return nil
+        default:
+            var index = start
+            while index < count {
+                switch base[index] {
+                case comma, closeBrace, closeBracket:
+                    return index
+                default:
+                    index += 1
+                }
+            }
+            return index
+        }
+    }
+
+    private static func skipWhitespace(
+        _ base: UnsafePointer<UInt8>, _ start: Int, _ count: Int
+    ) -> Int {
+        var index = start
+        while index < count, isWhitespace(base[index]) { index += 1 }
+        return index
+    }
+
+    private static func skipWhitespaceAndCommas(
+        _ base: UnsafePointer<UInt8>, _ start: Int, _ count: Int
+    ) -> Int {
+        var index = start
+        while index < count, isWhitespace(base[index]) || base[index] == comma {
+            index += 1
+        }
+        return index
+    }
+
+    private static func isWhitespace(_ byte: UInt8) -> Bool {
+        byte == 0x20 || byte == 0x0A || byte == 0x0D || byte == 0x09
+    }
+
+    private static func bytesEqual(
+        _ base: UnsafePointer<UInt8>, _ range: Range<Int>, _ expected: [UInt8]
+    ) -> Bool {
+        guard range.count == expected.count else { return false }
+        for offset in 0..<expected.count {
+            if base[range.lowerBound + offset] != expected[offset] {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static let quote: UInt8 = 0x22
+    private static let backslash: UInt8 = 0x5C
+    private static let colon: UInt8 = 0x3A
+    private static let comma: UInt8 = 0x2C
+    private static let openBrace: UInt8 = 0x7B
+    private static let closeBrace: UInt8 = 0x7D
+    private static let openBracket: UInt8 = 0x5B
+    private static let closeBracket: UInt8 = 0x5D
 }

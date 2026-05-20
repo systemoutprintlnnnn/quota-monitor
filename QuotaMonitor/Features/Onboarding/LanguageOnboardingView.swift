@@ -236,6 +236,7 @@ struct OnboardingView: View {
         }
         settings.markProviderOnboardingDone()
         env.applyEnabledProviders()
+        env.runScan(minInterval: 0)
         // Both `needs*` flags are now false, so closing here is the
         // legitimate path; the `onDisappear` re-opener sees the
         // cleared flags and stays silent.

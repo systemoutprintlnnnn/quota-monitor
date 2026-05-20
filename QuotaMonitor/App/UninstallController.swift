@@ -23,7 +23,7 @@ import AppKit
 //   - ~/Library/Caches/dev.tjzhou.QuotaMonitor
 //   - ~/Library/Saved Application State/dev.tjzhou.QuotaMonitor.savedState
 //   - ~/Library/HTTPStorages/dev.tjzhou.QuotaMonitor*
-//   - The .app bundle itself (via NSWorkspace.recycle → Trash, not unlink)
+//   - Trusted installed .app bundles (via NSWorkspace.recycle → Trash, not unlink)
 
 extension AppEnvironment {
 
@@ -68,6 +68,67 @@ extension AppEnvironment {
         return out
     }
 
+    /// App bundles safe for the uninstaller to move to Trash.
+    ///
+    /// The running bundle is included first so dev builds / DMG-run
+    /// copies still uninstall themselves. We then scan trusted install
+    /// locations for current and legacy names so uninstalling from a
+    /// dev build also removes the stale `/Applications/QuotaMonitor.app`
+    /// copy that Finder would otherwise ask to replace on reinstall.
+    ///
+    /// Every candidate, including same-name apps in `/Applications`,
+    /// must prove ownership via `Contents/Info.plist` bundle id. This
+    /// avoids deleting an unrelated app that happens to have the same
+    /// filename.
+    nonisolated static func trustedAppBundleTargets(
+        home: URL,
+        runningBundleURL: URL,
+        applicationsDirectories: [URL] = [
+            URL(fileURLWithPath: "/Applications", isDirectory: true)
+        ],
+        allowedBundleIDs: [String]
+    ) -> [URL] {
+        var candidates: [URL] = [runningBundleURL]
+        let appNames = ["QuotaMonitor.app", "CodexMonitor.app"]
+        let dirs = applicationsDirectories + [
+            home.appendingPathComponent("Applications", isDirectory: true)
+        ]
+        for dir in dirs {
+            for name in appNames {
+                candidates.append(dir.appendingPathComponent(name, isDirectory: true))
+            }
+        }
+
+        var seen: Set<String> = []
+        var out: [URL] = []
+        for candidate in candidates {
+            let key = candidate.standardizedFileURL.path
+            guard seen.insert(key).inserted else { continue }
+            guard trustedBundleID(at: candidate, allowedBundleIDs: allowedBundleIDs) != nil else {
+                continue
+            }
+            out.append(candidate)
+        }
+        return out
+    }
+
+    private nonisolated static func trustedBundleID(
+        at bundleURL: URL,
+        allowedBundleIDs: [String]
+    ) -> String? {
+        let infoURL = bundleURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist", isDirectory: false)
+        guard let data = try? Data(contentsOf: infoURL),
+              let plist = try? PropertyListSerialization.propertyList(
+                from: data, options: [], format: nil),
+              let dict = plist as? [String: Any],
+              let bundleID = dict["CFBundleIdentifier"] as? String,
+              allowedBundleIDs.contains(bundleID)
+        else { return nil }
+        return bundleID
+    }
+
     /// Wipe all app-owned data, move the running .app bundle to
     /// Trash, then terminate. Best-effort: per-file delete failures
     /// are swallowed (a missing file is the expected case on a fresh
@@ -102,14 +163,17 @@ extension AppEnvironment {
             try? fm.removeItem(at: url)
         }
 
-        // 3. Move the .app bundle to Trash via NSWorkspace.recycle.
+        // 3. Move trusted .app bundles to Trash via NSWorkspace.recycle.
         //    macOS keeps the running binary's memory mapping valid
         //    until our process exits, so the trash move is safe to
         //    do before terminate(). Completion fires on the main
         //    thread; we terminate from there regardless of success
         //    so the data wipe sticks even if the bundle move fails.
-        let bundleURL = Bundle.main.bundleURL
-        NSWorkspace.shared.recycle([bundleURL]) { _, _ in
+        let appBundles = Self.trustedAppBundleTargets(
+            home: home,
+            runningBundleURL: Bundle.main.bundleURL,
+            allowedBundleIDs: Self.uninstallBundleIDs)
+        NSWorkspace.shared.recycle(appBundles) { _, _ in
             // Hop back to MainActor — recycle's completion handler
             // is documented as main-thread, but the closure isn't
             // typed as @MainActor so Swift 6 won't let us call

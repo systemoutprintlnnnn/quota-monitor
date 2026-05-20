@@ -32,7 +32,7 @@ actor ImportEngine {
         self.codexHome = codexHome
     }
 
-    func performScan() async throws -> ScanReport {
+    func performScan(progress: ScanProgressHandler? = nil) async throws -> ScanReport {
         // Seed pricing once per scan so freshly-added models pick up prices on relaunch.
         try await database.pool.write { db in
             try PricingService.seedCatalog(in: db)
@@ -62,29 +62,42 @@ actor ImportEngine {
             guard let prior = priorState[file.path] else { return true }
             return prior.fileSize != file.fileSize || prior.fileMtimeMs != file.fileMtimeMs
         }
+        await progress?(ScanProgressUpdate(
+            provider: "codex",
+            completedFiles: 0,
+            totalFiles: changed.count,
+            currentFile: changed.first?.url.lastPathComponent))
 
         var importedSessions = 0
         var importedEvents = 0
         var importedSamples = 0
         var errors: [String] = []
 
-        for file in changed {
+        for (index, file) in changed.enumerated() {
             do {
-                guard let parsed = try RolloutParser.parse(
+                if let parsed = try RolloutParser.parse(
                     fileURL: file.url,
                     fallbackSessionId: file.sessionIdHint
-                ) else {
+                ) {
+                    let counts = try await persist(parsed: parsed, file: file)
+                    importedSessions += 1
+                    importedEvents += counts.events
+                    importedSamples += counts.samples
+                } else {
                     errors.append("no session id resolved: \(file.path)")
-                    continue
                 }
-
-                let counts = try await persist(parsed: parsed, file: file)
-                importedSessions += 1
-                importedEvents += counts.events
-                importedSamples += counts.samples
             } catch {
                 errors.append("\(file.path): \(error)")
             }
+            let nextIndex = index + 1
+            let nextFile = nextIndex < changed.count
+                ? changed[nextIndex].url.lastPathComponent
+                : nil
+            await progress?(ScanProgressUpdate(
+                provider: "codex",
+                completedFiles: nextIndex,
+                totalFiles: changed.count,
+                currentFile: nextFile))
         }
 
         // After all files are persisted, walk the parent chain to compute

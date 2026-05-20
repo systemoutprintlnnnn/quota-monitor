@@ -58,7 +58,7 @@ actor ClaudeImportEngine {
         ]
     }
 
-    func performScan() async throws -> ImportEngine.ScanReport {
+    func performScan(progress: ScanProgressHandler? = nil) async throws -> ImportEngine.ScanReport {
         let files = scanFiles()
         let priorState: [String: ImportStateRecord] = try await database.pool.read { db in
             let rows = try ImportStateRecord.fetchAll(db)
@@ -102,32 +102,46 @@ actor ClaudeImportEngine {
             }
             return PlannedScan(file: file, fromOffset: prior.byteOffset, resetSession: false)
         }
+        await progress?(ScanProgressUpdate(
+            provider: "claude",
+            completedFiles: 0,
+            totalFiles: planned.count,
+            currentFile: planned.first?.file.url.lastPathComponent))
 
         var importedSessions = 0
         var importedEvents = 0
         var errors: [String] = []
 
-        for plan in planned {
+        for (index, plan) in planned.enumerated() {
             do {
                 let output = try ClaudeRolloutParser.parse(
                     fileURL: plan.file.url, fromOffset: plan.fromOffset)
-                guard let parsed = output.session else {
+                if let parsed = output.session {
+                    let count = try await persist(
+                        parsed: parsed,
+                        file: plan.file,
+                        byteOffset: output.endOffset,
+                        resetSession: plan.resetSession)
+                    importedSessions += 1
+                    importedEvents += count
+                } else {
                     // Either the slice contained nothing, or this is a
                     // first-pass empty file. Either way: bump import_state
                     // so we don't re-scan.
                     try await persistEmpty(file: plan.file, byteOffset: output.endOffset)
-                    continue
                 }
-                let count = try await persist(
-                    parsed: parsed,
-                    file: plan.file,
-                    byteOffset: output.endOffset,
-                    resetSession: plan.resetSession)
-                importedSessions += 1
-                importedEvents += count
             } catch {
                 errors.append("\(plan.file.path): \(error)")
             }
+            let nextIndex = index + 1
+            let nextFile = nextIndex < planned.count
+                ? planned[nextIndex].file.url.lastPathComponent
+                : nil
+            await progress?(ScanProgressUpdate(
+                provider: "claude",
+                completedFiles: nextIndex,
+                totalFiles: planned.count,
+                currentFile: nextFile))
         }
 
         return ImportEngine.ScanReport(

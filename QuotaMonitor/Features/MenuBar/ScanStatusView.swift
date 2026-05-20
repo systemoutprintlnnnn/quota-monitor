@@ -7,7 +7,31 @@ extension MenuBarContentView {
 
     @ViewBuilder
     var scanStatus: some View {
-        if let report = env.lastScanReport {
+        if let progress = env.scanProgress {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(L10n.scanIndexingTitle)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                Text(L10n.scanProgressSummary(
+                    completed: progress.completedFiles,
+                    total: progress.totalFiles))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                ProgressView(value: progress.fraction ?? 0)
+                    .progressViewStyle(.linear)
+                if let file = progress.currentFile {
+                    Text(L10n.scanCurrentFile(file))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        } else if let report = env.lastScanReport {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.lastScan)
                     .font(.caption.weight(.medium))

@@ -31,6 +31,15 @@ struct RolloutParserTests {
         return url
     }
 
+    private func writeRollout(_ jsonl: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qm-rollout-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("rollout-2026-05-20T00-00-00-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl")
+        try jsonl.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     // MARK: - title fallback (Day-30 fix)
 
     @Test("CLI 0.40 with cwd → title is cwd's leaf directory")
@@ -111,6 +120,19 @@ struct RolloutParserTests {
         #expect(abs(primary.usedPercent - 12.5) < 0.0001)
         #expect(primary.planType == "plus")
         #expect(parsed.latestPlanType == "plus")
+    }
+
+    @Test("rate_limits are retained when token_count info is null")
+    func rateLimitsWithoutUsageInfoAreRetained() throws {
+        let url = try writeRollout(#"""
+        {"timestamp":"2026-05-20T00:00:00.000Z","type":"session_meta","payload":{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","timestamp":"2026-05-20T00:00:00.000Z","cwd":"/tmp/project"}}
+        {"timestamp":"2026-05-20T00:00:01.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"codex","limit_name":null,"primary":{"used_percent":7.0,"window_minutes":300,"resets_at":1779272370},"secondary":{"used_percent":22.0,"window_minutes":10080,"resets_at":1779820985},"plan_type":"prolite"}}}
+        """# + "\n")
+        let parsed = try #require(try RolloutParser.parse(fileURL: url))
+
+        #expect(parsed.usageDeltas.isEmpty)
+        #expect(parsed.rateLimitSamples.count == 2)
+        #expect(parsed.latestPlanType == "prolite")
     }
 
     // MARK: - legacy fallback

@@ -7,6 +7,38 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.15] — 2026-05-20
+
+### Fixed
+- **First-run setup now starts and explains the initial scan.** After
+  onboarding finishes, QuotaMonitor explicitly starts a local history
+  scan instead of waiting for the menu-bar popover's foreground
+  refresh hook. While the scan is running, the menu-bar status now
+  shows "Indexing local history" / "正在建立索引", the current file,
+  processed file count, and a linear progress bar so a large first
+  import no longer looks like an endless spinner.
+- **Codex rollout scans skip irrelevant payload decoding.** The
+  importer now reads the JSONL envelope discriminator first and only
+  decodes payloads for `session_meta`, `turn_context`, and
+  `event_msg(type=token_count)`. Large `response_item` lines are
+  skipped without building a full `JSONValue` tree and re-encoding it,
+  cutting the hot parse path on large first scans while preserving
+  parsed usage/rate-limit results in regression checks.
+- **Codex JSONL rate-limit samples no longer require usage info.**
+  Some Codex `token_count` rows carry `rate_limits` while `info` is
+  `null`. The parser now retains those primary/secondary samples and
+  `plan_type` instead of dropping the whole row just because it has no
+  token delta.
+- **In-app uninstall now removes stale installed app copies.** The
+  uninstaller no longer only moves the currently-running bundle to
+  Trash. It also scans trusted install locations
+  (`/Applications` and `~/Applications`) for `QuotaMonitor.app` and
+  legacy `CodexMonitor.app` copies, then removes only candidates whose
+  `Contents/Info.plist` bundle id matches `dev.tjzhou.QuotaMonitor` or
+  `dev.tjzhou.CodexMonitor`. This fixes the reinstall flow where a user
+  ran a dev/DMG copy, clicked Uninstall, and Finder still prompted to
+  replace an existing `/Applications/QuotaMonitor.app`.
+
 ## [0.2.14] — 2026-05-20
 
 ### Added

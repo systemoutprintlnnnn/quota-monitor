@@ -191,6 +191,20 @@ enum L10n {
         t(en: "\(scanned) files · \(changed) changed · \(events) events",
           zh: "\(scanned) 文件 · \(changed) 变更 · \(events) 事件")
     }
+    static var scanIndexingTitle: String {
+        t(en: "Indexing local history", zh: "正在建立索引")
+    }
+    static func scanProgressSummary(completed: Int, total: Int) -> String {
+        if total > 0 {
+            return t(en: "\(completed)/\(total) files processed",
+                     zh: "已处理 \(completed)/\(total) 个文件")
+        }
+        return t(en: "\(completed) files processed",
+                 zh: "已处理 \(completed) 个文件")
+    }
+    static func scanCurrentFile(_ file: String) -> String {
+        t(en: "Current file: \(file)", zh: "当前文件：\(file)")
+    }
     static var noScanYet: String { t(en: "No scan yet", zh: "尚未扫描") }
     static var scanErrors: String { t(en: "Scan errors", zh: "扫描错误") }
     static func errorTotal(_ n: Int) -> String {

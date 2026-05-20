@@ -109,9 +109,13 @@ enum RolloutParser {
                 }
 
             case .tokenCount(let tc, let envelopeTs):
+                let timestamp = envelopeTs ?? ISO8601.fractional.string(from: Date())
+                if let plan = tc.rateLimits?.planType { latestPlanType = plan }
+                rateLimitSamples.append(contentsOf:
+                    extractSamples(from: tc.rateLimits, at: timestamp))
+
                 guard let info = tc.info,
                       let total = info.totalTokenUsage else { continue }
-                let timestamp = envelopeTs ?? ISO8601.fractional.string(from: Date())
 
                 // Resolution order: explicit on payload → tracked turn_context →
                 // legacy fallback. Only the last counts as inferred.
@@ -146,10 +150,6 @@ enum RolloutParser {
                 }
                 previousUsage = total
                 updatedAt = timestamp
-
-                if let plan = tc.rateLimits?.planType { latestPlanType = plan }
-                rateLimitSamples.append(contentsOf:
-                    extractSamples(from: tc.rateLimits, at: timestamp))
 
             case .other:
                 continue

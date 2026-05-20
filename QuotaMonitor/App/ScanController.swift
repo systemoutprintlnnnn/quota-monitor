@@ -22,16 +22,27 @@ extension AppEnvironment {
         }
         isScanning = true
         lastError = nil
+        let scanRunID = beginScanProgress()
 
         Task { [weak self] in
             guard let self else { return }
-            defer { Task { @MainActor in self.isScanning = false } }
+            defer {
+                Task { @MainActor in
+                    self.isScanning = false
+                    self.clearScanProgress(runID: scanRunID)
+                }
+            }
             do {
                 let (db, engine) = try self.ensureServices()
                 let claude = self.claudeEngine
                 let snap = SettingsStore.snapshot()
                 let enabled = snap.enabledProviders
                 let fastMode = snap.codexFastModeBilling
+                let progressHandler: ScanProgressHandler = { [weak self] update in
+                    await MainActor.run {
+                        self?.handleScanProgressUpdate(update, runID: scanRunID)
+                    }
+                }
                 // Hard 5-minute cap so a runaway parser (e.g. a hundreds-of-MB
                 // rollout from a still-active Codex session) can't strand
                 // `isScanning = true` and freeze the Refresh button forever.
@@ -45,7 +56,7 @@ extension AppEnvironment {
                     // backfill logic below identical regardless of which
                     // providers are active.
                     async let codexReport = enabled.contains("codex")
-                        ? engine.performScan()
+                        ? engine.performScan(progress: progressHandler)
                         : ImportEngine.ScanReport.empty
                     // Run the Claude scan as its own task so the optional-
                     // chained `claude?.performScan()` doesn't interact
@@ -55,7 +66,7 @@ extension AppEnvironment {
                         guard enabled.contains("claude"), let claude else {
                             return .empty
                         }
-                        return try await claude.performScan()
+                        return try await claude.performScan(progress: progressHandler)
                     }
                     let merged = Self.mergeScanReports(
                         try await codexReport, try await claudeTask.value)
@@ -64,6 +75,7 @@ extension AppEnvironment {
                     // Skip when nothing changed — backfill is sub-second, but
                     // it still pulls a write lock and walks every event row.
                     if merged.changedFiles > 0 {
+                        await MainActor.run { self.markScanPricing(runID: scanRunID) }
                         try await db.pool.write {
                             try PricingService.backfillAllValues(
                                 in: $0, codexFastModeBilling: fastMode)
@@ -159,6 +171,60 @@ extension AppEnvironment {
             importedEvents: a.importedEvents + b.importedEvents,
             importedRateLimitSamples: a.importedRateLimitSamples + b.importedRateLimitSamples,
             errors: a.errors + b.errors)
+    }
+
+    func beginScanProgress() -> UUID {
+        let runID = UUID()
+        scanProgressRunID = runID
+        scanProgressStates = [:]
+        scanProgress = ScanProgress(
+            phase: .discovering,
+            completedFiles: 0,
+            totalFiles: 0,
+            currentFile: nil)
+        return runID
+    }
+
+    func handleScanProgressUpdate(_ update: ScanProgressUpdate, runID: UUID) {
+        guard scanProgressRunID == runID, isScanning else { return }
+        scanProgressStates[update.provider] = ScanProviderProgress(
+            completedFiles: update.completedFiles,
+            totalFiles: update.totalFiles,
+            currentFile: update.currentFile)
+        scanProgress = Self.aggregateScanProgress(scanProgressStates, phase: .indexing)
+    }
+
+    func markScanPricing(runID: UUID) {
+        guard scanProgressRunID == runID, isScanning else { return }
+        scanProgress = Self.aggregateScanProgress(scanProgressStates, phase: .pricing)
+    }
+
+    func clearScanProgress(runID: UUID) {
+        guard scanProgressRunID == runID else { return }
+        scanProgressStates = [:]
+        scanProgressRunID = nil
+        scanProgress = nil
+    }
+
+    nonisolated static func aggregateScanProgress(
+        _ states: [String: ScanProviderProgress],
+        phase: ScanProgress.Phase
+    ) -> ScanProgress {
+        let completed = states.values.reduce(0) { $0 + max(0, $1.completedFiles) }
+        let total = states.values.reduce(0) { $0 + max(0, $1.totalFiles) }
+        let current = states.keys.sorted()
+            .compactMap { key -> String? in
+                guard let file = states[key]?.currentFile,
+                      !file.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                else { return nil }
+                return file
+            }
+            .first
+        return ScanProgress(
+            phase: phase,
+            completedFiles: completed,
+            totalFiles: total,
+            currentFile: current)
     }
 
     nonisolated static func csvRow(_ fields: [String]) -> String {

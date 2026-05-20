@@ -82,4 +82,102 @@ struct UninstallTargetsTests {
         #expect(AppEnvironment.uninstallBundleIDs ==
                 ["dev.tjzhou.QuotaMonitor", "dev.tjzhou.CodexMonitor"])
     }
+
+    @Test("Trusted app bundles include running copy plus installed current and legacy copies")
+    func trustedAppBundlesIncludeKnownInstallLocations() throws {
+        let root = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let home = root.appendingPathComponent("Users/example", isDirectory: true)
+        let systemApplications = root.appendingPathComponent("Applications", isDirectory: true)
+        let userApplications = home.appendingPathComponent("Applications", isDirectory: true)
+        let running = root.appendingPathComponent("Build/QuotaMonitor.app", isDirectory: true)
+
+        try writeBundle(at: running, bundleID: "dev.tjzhou.QuotaMonitor")
+        try writeBundle(
+            at: systemApplications.appendingPathComponent("QuotaMonitor.app", isDirectory: true),
+            bundleID: "dev.tjzhou.QuotaMonitor")
+        try writeBundle(
+            at: systemApplications.appendingPathComponent("CodexMonitor.app", isDirectory: true),
+            bundleID: "dev.tjzhou.CodexMonitor")
+        try writeBundle(
+            at: userApplications.appendingPathComponent("QuotaMonitor.app", isDirectory: true),
+            bundleID: "dev.tjzhou.QuotaMonitor")
+
+        let paths = AppEnvironment.trustedAppBundleTargets(
+            home: home,
+            runningBundleURL: running,
+            applicationsDirectories: [systemApplications, userApplications],
+            allowedBundleIDs: bundleIDs
+        ).map(\.path)
+
+        #expect(paths == [
+            running.path,
+            systemApplications.appendingPathComponent("QuotaMonitor.app").path,
+            systemApplications.appendingPathComponent("CodexMonitor.app").path,
+            userApplications.appendingPathComponent("QuotaMonitor.app").path,
+        ])
+    }
+
+    @Test("Trusted app bundles reject same-name apps with unexpected bundle id")
+    func trustedAppBundlesRejectUnexpectedBundleID() throws {
+        let root = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let home = root.appendingPathComponent("Users/example", isDirectory: true)
+        let systemApplications = root.appendingPathComponent("Applications", isDirectory: true)
+        let running = root.appendingPathComponent("Build/QuotaMonitor.app", isDirectory: true)
+        let impostor = systemApplications.appendingPathComponent("QuotaMonitor.app", isDirectory: true)
+
+        try writeBundle(at: running, bundleID: "dev.tjzhou.QuotaMonitor")
+        try writeBundle(at: impostor, bundleID: "com.example.NotQuotaMonitor")
+
+        let paths = AppEnvironment.trustedAppBundleTargets(
+            home: home,
+            runningBundleURL: running,
+            applicationsDirectories: [systemApplications],
+            allowedBundleIDs: bundleIDs
+        ).map(\.path)
+
+        #expect(paths == [running.path])
+    }
+
+    @Test("Trusted app bundles de-duplicate when running from Applications")
+    func trustedAppBundlesDeduplicateRunningApplicationsCopy() throws {
+        let root = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let home = root.appendingPathComponent("Users/example", isDirectory: true)
+        let systemApplications = root.appendingPathComponent("Applications", isDirectory: true)
+        let running = systemApplications.appendingPathComponent("QuotaMonitor.app", isDirectory: true)
+
+        try writeBundle(at: running, bundleID: "dev.tjzhou.QuotaMonitor")
+
+        let paths = AppEnvironment.trustedAppBundleTargets(
+            home: home,
+            runningBundleURL: running,
+            applicationsDirectories: [systemApplications],
+            allowedBundleIDs: bundleIDs
+        ).map(\.path)
+
+        #expect(paths == [running.path])
+    }
+
+    private func makeTempRoot() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("QuotaMonitorTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func writeBundle(at url: URL, bundleID: String) throws {
+        let contents = url.appendingPathComponent("Contents", isDirectory: true)
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        let plist = contents.appendingPathComponent("Info.plist", isDirectory: false)
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": bundleID],
+            format: .xml,
+            options: 0)
+        try data.write(to: plist)
+    }
 }
