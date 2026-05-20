@@ -69,7 +69,16 @@ actor ClaudeCLIRefreshTrigger {
         }
         if let until = blockedUntil, Date() < until {
             Log.poller.info("claude CLI refresh skipped — cooldown for \(Int(until.timeIntervalSinceNow), privacy: .public)s")
-            DeveloperLog.info("claude CLI refresh skipped reason=cooldown remaining=\(Int(until.timeIntervalSinceNow))", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.refresh.skip",
+                category: "poller",
+                provider: "claude",
+                result: "skipped",
+                fields: [
+                    "reason": "cooldown",
+                    "remaining_seconds": .int(Int(until.timeIntervalSinceNow)),
+                    "blocked_until": .string(ISO8601.fractional.string(from: until))
+                ])
             return false
         }
         let task = Task<Bool, Never> { [spawn, attemptTimeout] in
@@ -80,11 +89,16 @@ actor ClaudeCLIRefreshTrigger {
             let before = Self.keychainMdat()
             let started = Date()
             Log.poller.info("claude CLI refresh: spawning")
-            DeveloperLog.info("claude CLI refresh spawning", category: "poller")
+            DeveloperLog.eventRecord("claude_cli.refresh.spawn", category: "poller", provider: "claude")
             let spawnOK = await spawn()
             if !spawnOK {
                 Log.poller.error("claude CLI refresh: spawn failed")
-                DeveloperLog.error("claude CLI refresh spawn failed", category: "poller")
+                DeveloperLog.eventRecord(
+                    "claude_cli.refresh.spawn_fail",
+                    level: .error,
+                    category: "poller",
+                    provider: "claude",
+                    result: "failure")
                 return false
             }
             // Wait up to (attemptTimeout - elapsed) for mdat to advance.
@@ -94,13 +108,24 @@ actor ClaudeCLIRefreshTrigger {
                 if let after, after != before {
                     let dur = Date().timeIntervalSince(started)
                     Log.poller.info("claude CLI refresh: keychain mdat advanced after \(Int(dur * 1000), privacy: .public)ms")
-                    DeveloperLog.info("claude CLI refresh keychain advanced durationMs=\(Int(dur * 1000))", category: "poller")
+                    DeveloperLog.eventRecord(
+                        "claude_cli.refresh.keychain_advanced",
+                        category: "poller",
+                        provider: "claude",
+                        durationMilliseconds: Int(dur * 1000),
+                        result: "success")
                     return true
                 }
                 try? await Task.sleep(nanoseconds: 200_000_000) // 200 ms
             }
             Log.poller.error("claude CLI refresh: timed out waiting for keychain change")
-            DeveloperLog.error("claude CLI refresh timed out", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.refresh.timeout",
+                level: .error,
+                category: "poller",
+                provider: "claude",
+                result: "timeout",
+                fields: ["attempt_timeout_seconds": .double(attemptTimeout)])
             return false
         }
         inFlight = task
@@ -116,7 +141,15 @@ actor ClaudeCLIRefreshTrigger {
             let cooldown = min(baseCooldown * scale, maxCooldown)
             blockedUntil = Date().addingTimeInterval(cooldown)
             Log.poller.info("claude CLI refresh: cooldown \(Int(cooldown), privacy: .public)s (#\(self.consecutiveFailures, privacy: .public))")
-            DeveloperLog.info("claude CLI refresh cooldown seconds=\(Int(cooldown)) failures=\(self.consecutiveFailures)", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.refresh.cooldown",
+                category: "poller",
+                provider: "claude",
+                result: "cooldown",
+                fields: [
+                    "cooldown_seconds": .int(Int(cooldown)),
+                    "failures": .int(self.consecutiveFailures)
+                ])
         }
         return result
     }
@@ -157,7 +190,12 @@ actor ClaudeCLIRefreshTrigger {
         let env = augmentedEnvironment()
         guard let binary = resolveClaudeBinary(env: env) else {
             Log.poller.error("claude CLI refresh: `claude` not found on PATH")
-            DeveloperLog.error("claude CLI refresh binary not found", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.binary.not_found",
+                level: .error,
+                category: "poller",
+                provider: "claude",
+                result: "failure")
             return false
         }
         let process = Process()
@@ -172,7 +210,18 @@ actor ClaudeCLIRefreshTrigger {
             try process.run()
         } catch {
             Log.poller.error("claude CLI refresh: launch failed \(String(describing: error), privacy: .public)")
-            DeveloperLog.error("claude CLI refresh launch failed binary=\(binary) error=\(String(describing: error))", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.launch.fail",
+                level: .error,
+                category: "poller",
+                provider: "claude",
+                result: "failure",
+                message: String(describing: error),
+                fields: [
+                    "binary": .string(binary),
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
             return false
         }
         // Wait for exit with a hard cap. `Process.waitUntilExit()` is
@@ -190,13 +239,31 @@ actor ClaudeCLIRefreshTrigger {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !out.isEmpty {
             Log.poller.debug("claude CLI stdout: \(out, privacy: .public)")
-            DeveloperLog.debug("claude CLI stdout \(out)", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.stdout",
+                level: .debug,
+                category: "poller",
+                provider: "claude",
+                fields: ["stdout": .string(out)])
         }
         if !err.isEmpty {
             Log.poller.error("claude CLI stderr: \(err, privacy: .public)")
-            DeveloperLog.error("claude CLI stderr \(err)", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_cli.stderr",
+                level: .error,
+                category: "poller",
+                provider: "claude",
+                fields: ["stderr": .string(err)])
         }
-        DeveloperLog.info("claude CLI refresh exited code=\(exitCode)", category: "poller")
+        DeveloperLog.eventRecord(
+            "claude_cli.exit",
+            category: "poller",
+            provider: "claude",
+            result: exitCode == 0 ? "success" : "failure",
+            fields: [
+                "binary": .string(binary),
+                "exit_code": .int(Int(exitCode))
+            ])
         return exitCode == 0
     }
 

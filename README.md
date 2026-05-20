@@ -200,13 +200,18 @@ OSLog categories: `appserver`, `importer`, `poller`, `pricing`, `storage`,
 `ui`. Developer Mode uses the same operational areas plus `query`, `scan`,
 `settings`, `uninstall`, and `export`.
 
-For persistent local run logs, enable **Settings → Advanced → Developer
-Mode**. QuotaMonitor then appends lifecycle, refresh, scan, pricing, query,
-and settings diagnostics to:
+For persistent troubleshooting logs, enable **Settings → Advanced →
+Developer Mode**. QuotaMonitor then writes detailed JSONL diagnostics with
+stable event names, `app_run_id`, `op_id`, `parent_op_id`, trigger source,
+durations, skip reasons, result status, and structured error fields to:
 
 ```text
 ~/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log
 ```
+
+The developer log rotates at 20 MB to `quotamonitor-dev.log.1`. Turning
+Developer Mode off deletes both developer log files. Sensitive credential
+contents and authorization headers are not logged.
 
 ## Current limitations
 

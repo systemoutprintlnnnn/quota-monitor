@@ -31,9 +31,25 @@ struct QuotaMonitorApp: App {
         _settings = State(wrappedValue: SettingsStore.shared)
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
             ?? "unknown"
-        DeveloperLog.info(
-            "app launch version=\(version) logFile=\(DeveloperLog.logFileURL.path)",
-            category: "app")
+        let bundleID = Bundle.main.bundleIdentifier ?? "unknown"
+        let snap = SettingsStore.snapshot()
+        if snap.developerModeEnabled {
+            DeveloperLog.eventRecord(
+                "app.start",
+                category: "app",
+                trigger: "launch",
+                fields: [
+                    "version": .string(version),
+                    "bundle_id": .string(bundleID),
+                    "pid": .int(Int(ProcessInfo.processInfo.processIdentifier)),
+                    "log_path": .string(DeveloperLog.logFileURL.path),
+                    "database_path": .string(DatabaseManager.defaultURL().path),
+                    "enabled_providers": .string(snap.enabledProviders.sorted().joined(separator: ",")),
+                    "poll_interval_seconds": .int(snap.pollIntervalSeconds),
+                    "onboarding_done": .bool(snap.hasCompletedProviderOnboarding),
+                    "codex_fast_mode_billing": .bool(snap.codexFastModeBilling)
+                ])
+        }
     }
 
     var body: some Scene {
@@ -66,11 +82,19 @@ struct QuotaMonitorApp: App {
                     // menu bar) so old users see freshly-scanned JSONL data
                     // on launch without having to click the popover first.
                     // No throttle: this is the cold-boot path, never repeated.
-                    environment.refreshAll(throttle: false)
+                    environment.refreshAll(throttle: false, trigger: "launch")
                     // Warm the Dashboard cache so first-open is instant.
                     // refreshAll already covers menu bar + scan; this only
                     // adds the heavier aggregator query.
                     environment.refreshDashboard()
+                    // Eagerly hydrate the menu-bar snapshot from the DB so
+                    // popping open the popover during the cold-launch scan
+                    // shows last-known data instead of the "Loading…"
+                    // placeholder. refreshAll's scan-tail will overwrite
+                    // this with fresh data once the scan finishes;
+                    // refreshMenuBar coalesces internally so the two calls
+                    // can't race.
+                    environment.refreshMenuBar(trigger: "launch")
                     environment.startBackgroundPolling()
                 }
         } label: {

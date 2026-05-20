@@ -155,7 +155,16 @@ actor ClaudeUsagePoller {
             let gapSec = Double(Self.minimumGap.components.seconds)
             if elapsed < gapSec {
                 Log.poller.info("claude /usage skipped — last attempt \(Int(elapsed), privacy: .public)s ago, min gap \(Int(gapSec), privacy: .public)s")
-                DeveloperLog.info("claude usage skipped reason=minimum-gap elapsed=\(Int(elapsed)) gap=\(Int(gapSec))", category: "poller")
+                DeveloperLog.eventRecord(
+                    "claude_usage.poll.skip",
+                    category: "poller",
+                    provider: "claude",
+                    result: "skipped",
+                    fields: [
+                        "reason": "minimum-gap",
+                        "elapsed_seconds": .int(Int(elapsed)),
+                        "minimum_gap_seconds": .int(Int(gapSec))
+                    ])
                 return
             }
         }
@@ -166,7 +175,16 @@ actor ClaudeUsagePoller {
         if let until = cooldownUntil, until > now {
             let remaining = until.timeIntervalSince(now)
             Log.poller.info("claude /usage skipped — in 429 cooldown for \(Int(remaining), privacy: .public)s more")
-            DeveloperLog.info("claude usage skipped reason=rate-limit-cooldown remaining=\(Int(remaining))", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.poll.skip",
+                category: "poller",
+                provider: "claude",
+                result: "skipped",
+                fields: [
+                    "reason": "rate-limit-cooldown",
+                    "remaining_seconds": .int(Int(remaining)),
+                    "cooldown_until": .string(ISO8601.fractional.string(from: until))
+                ])
             return
         }
         lastAttemptAt = now
@@ -184,7 +202,16 @@ actor ClaudeUsagePoller {
             await onSnapshot(.success(snapshot))
             try await persist(snapshot: snapshot)
             Log.poller.info("claude /usage ok 5h=\(snapshot.fiveHour?.usedPercent ?? -1, privacy: .public)% 7d=\(snapshot.sevenDay?.usedPercent ?? -1, privacy: .public)%")
-            DeveloperLog.info("claude usage ok fiveHour=\(snapshot.fiveHour?.usedPercent ?? -1)% sevenDay=\(snapshot.sevenDay?.usedPercent ?? -1)%", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.poll.finish",
+                category: "poller",
+                provider: "claude",
+                result: "success",
+                fields: [
+                    "five_hour_used_percent": .double(snapshot.fiveHour?.usedPercent ?? -1),
+                    "seven_day_used_percent": .double(snapshot.sevenDay?.usedPercent ?? -1),
+                    "tier": .string(snapshot.tier ?? "")
+                ])
         } catch {
             // Track auth-class failures separately so the back-off only
             // triggers on persistent misconfig, not transient network errors.
@@ -209,13 +236,32 @@ actor ClaudeUsagePoller {
                 // transient, non-actionable signal. The cooldown callback
                 // gives the UI the actionable bit ("limited, retry in X").
                 Log.poller.info("claude /usage 429 (#\(self.consecutiveRateLimits, privacy: .public)), backing off \(seconds, privacy: .public)s")
-                DeveloperLog.info("claude usage rateLimited count=\(self.consecutiveRateLimits) backoffSeconds=\(seconds)", category: "poller")
+                DeveloperLog.eventRecord(
+                    "claude_usage.poll.rate_limited",
+                    category: "poller",
+                    provider: "claude",
+                    result: "rate_limited",
+                    fields: [
+                        "count": .int(self.consecutiveRateLimits),
+                        "backoff_seconds": .double(seconds),
+                        "cooldown_until": .string(ISO8601.fractional.string(from: until))
+                    ])
                 return
             default:
                 await onSnapshot(.failure(error))
             }
             Log.poller.error("claude /usage failed: \(String(describing: error), privacy: .public)")
-            DeveloperLog.error("claude usage failed error=\(String(describing: error))", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.poll.fail",
+                level: .error,
+                category: "poller",
+                provider: "claude",
+                result: "failure",
+                message: String(describing: error),
+                fields: [
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
         }
     }
 

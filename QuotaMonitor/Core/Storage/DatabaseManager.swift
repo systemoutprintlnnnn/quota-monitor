@@ -74,7 +74,17 @@ final class DatabaseManager: Sendable {
             try fm.createDirectory(at: newDir, withIntermediateDirectories: true)
         } catch {
             Log.storage.error("legacy DB migration: createDirectory failed: \(error.localizedDescription, privacy: .public)")
-            DeveloperLog.error("legacy DB migration createDirectory failed error=\(error.localizedDescription)", category: "storage")
+            DeveloperLog.eventRecord(
+                "storage.legacy_db_migration.create_directory.fail",
+                level: .error,
+                category: "storage",
+                result: "failure",
+                message: error.localizedDescription,
+                fields: [
+                    "path": .string(newDir.path),
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
             return
         }
 
@@ -91,7 +101,18 @@ final class DatabaseManager: Sendable {
                 moved += 1
             } catch {
                 Log.storage.error("legacy DB migration: failed to move \(from.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                DeveloperLog.error("legacy DB migration move failed from=\(from.path) to=\(to.path) error=\(error.localizedDescription)", category: "storage")
+                DeveloperLog.eventRecord(
+                    "storage.legacy_db_migration.move.fail",
+                    level: .error,
+                    category: "storage",
+                    result: "failure",
+                    message: error.localizedDescription,
+                    fields: [
+                        "from": .string(from.path),
+                        "to": .string(to.path),
+                        "error_type": .string(String(describing: type(of: error))),
+                        "error_message": .string(error.localizedDescription)
+                    ])
             }
         }
 
@@ -102,6 +123,13 @@ final class DatabaseManager: Sendable {
         }
 
         Log.storage.info("migrated legacy CodexMonitor DB → QuotaMonitor (\(moved, privacy: .public) files) at \(newDB.path, privacy: .public)")
-        DeveloperLog.info("migrated legacy CodexMonitor DB moved=\(moved) path=\(newDB.path)", category: "storage")
+        DeveloperLog.eventRecord(
+            "storage.legacy_db_migration.finish",
+            category: "storage",
+            result: "success",
+            fields: [
+                "moved": .int(moved),
+                "path": .string(newDB.path)
+            ])
     }
 }

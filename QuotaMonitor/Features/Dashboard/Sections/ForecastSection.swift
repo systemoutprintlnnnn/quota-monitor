@@ -160,7 +160,8 @@ struct ForecastSection: View {
                         title: L10n.quotaCardTitle5h,
                         usedPercent: pct * 100,
                         resetsAt: resetsAt,
-                        burn: nil)
+                        burn: nil,
+                        displayModeOverride: .used)
                 }
                 if let week = liveSevenDay {
                     QuotaProgressRow(
@@ -244,6 +245,8 @@ private struct ProviderForecastCard<Content: View>: View {
 /// TimelineView so the displayed reset time stays fresh without forcing
 /// the whole Dashboard to re-render.
 struct QuotaProgressRow: View {
+    @Environment(SettingsStore.self) private var settings
+
     let title: String
     let usedPercent: Double
     let resetsAt: Date
@@ -251,11 +254,17 @@ struct QuotaProgressRow: View {
     /// natural reset, the trailing label flips to red and reads
     /// "hits 100% in ~Xh".
     let burn: CodexBurnRate?
+    /// Some fallback rows render elapsed-window progress rather than
+    /// true quota usage. Keep those in the traditional increasing
+    /// direction even when quota rows are set to "remaining".
+    var displayModeOverride: SettingsStore.QuotaDisplayMode?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { ctx in
             let now = ctx.date
-            let usedFraction = max(0, min(1, usedPercent / 100))
+            let mode = displayModeOverride ?? settings.quotaDisplayMode
+            let displayPercent = mode.displayPercent(forUsedPercent: usedPercent)
+            let progressValue = mode.progressValue(forUsedPercent: usedPercent)
             let remaining = max(0, resetsAt.timeIntervalSince(now))
             let warn = usedPercent >= 80
             let bar: Color = warn ? .red : .green
@@ -264,11 +273,11 @@ struct QuotaProgressRow: View {
                     Text(title)
                         .font(.caption.weight(.medium))
                     Spacer()
-                    Text(String(format: "%.0f%%", usedPercent))
+                    Text(String(format: "%.0f%%", displayPercent))
                         .font(.caption.monospacedDigit().weight(.semibold))
                         .foregroundStyle(warn ? .red : .primary)
                 }
-                ProgressView(value: usedFraction)
+                ProgressView(value: progressValue)
                     .tint(bar)
                 trailingLabel(now: now, remaining: remaining)
                     .font(.caption2.monospacedDigit())
@@ -281,7 +290,7 @@ struct QuotaProgressRow: View {
         if let burn,
            let etaMinutes = burn.minutesUntilExhaustion(currentPercent: usedPercent),
            etaMinutes < remaining / 60 {
-            Text(L10n.forecastHits100In(formatRemaining(seconds: etaMinutes * 60)))
+            Text(exhaustionLabel(formatRemaining(seconds: etaMinutes * 60)))
                 .foregroundStyle(.red)
         } else {
             Text(L10n.forecastResetsIn(formatRemaining(seconds: remaining)))
@@ -299,5 +308,15 @@ struct QuotaProgressRow: View {
         if days > 0 { return "\(days)d \(hours)h" }
         if hours > 0 { return "\(hours)h \(minutes)m" }
         return "\(minutes)m"
+    }
+
+    private func exhaustionLabel(_ relative: String) -> String {
+        let mode = displayModeOverride ?? settings.quotaDisplayMode
+        switch mode {
+        case .used:
+            return L10n.forecastHits100In(relative)
+        case .remaining:
+            return L10n.forecastRunsOutIn(relative)
+        }
     }
 }

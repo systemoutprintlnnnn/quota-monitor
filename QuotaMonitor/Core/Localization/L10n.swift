@@ -110,6 +110,19 @@ enum L10n {
         t(en: "Time horizon for the headline $ + tokens line and the session count on each provider block.",
           zh: "每个 Provider 卡片上金额、Token 数与会话数所采用的时间范围。")
     }
+    static var quotaDisplayModeLabel: String {
+        t(en: "Quota percentage", zh: "配额百分比")
+    }
+    static var quotaDisplayModeUsed: String {
+        t(en: "Used", zh: "已用")
+    }
+    static var quotaDisplayModeRemaining: String {
+        t(en: "Remaining", zh: "剩余")
+    }
+    static var quotaDisplayModeHelp: String {
+        t(en: "Choose whether quota rows show the percent already used or the percent still remaining. Progress bars follow the same direction.",
+          zh: "选择配额行显示已用百分比还是剩余百分比。用量条也会按同一方向显示。")
+    }
     static var showDockIconLabel: String {
         t(en: "Show Dock icon when windows are open",
           zh: "窗口打开时显示程序坞图标")
@@ -316,6 +329,9 @@ enum L10n {
     }
     static func forecastHits100In(_ relative: String) -> String {
         t(en: "hits 100% in ~\(relative)", zh: "~\(relative)将达 100%")
+    }
+    static func forecastRunsOutIn(_ relative: String) -> String {
+        t(en: "runs out in ~\(relative)", zh: "~\(relative)后耗尽")
     }
     static func forecastResetsIn(_ relative: String) -> String {
         t(en: "resets in \(relative)", zh: "\(relative)后重置")
@@ -527,8 +543,8 @@ enum L10n {
           zh: "将诊断日志写入本地文件")
     }
     static var developerModeHelp: String {
-        t(en: "When enabled, app startup, refreshes, scans, pricing sync, queries, and settings changes are appended to a persistent log file. Turning this off deletes the existing developer log.",
-          zh: "开启后，应用启动、刷新、扫描、价格同步、查询与设置变更都会追加到持久化日志文件。关闭时会删除已有开发者日志。")
+        t(en: "For troubleshooting only. Writes detailed JSONL diagnostics with operation IDs, triggers, durations, skip reasons, and errors. The log rotates at 20 MB; turning this off deletes developer logs.",
+          zh: "仅用于排查问题。会写入详细 JSONL 诊断日志，包含操作 ID、触发来源、耗时、跳过原因与错误。日志达到 20 MB 会轮转；关闭时会删除开发者日志。")
     }
     static var developerLogFileLabel: String { t(en: "Log file", zh: "日志文件") }
     static var revealLogFile: String { t(en: "Reveal Log File", zh: "显示日志文件") }
@@ -670,15 +686,15 @@ enum L10n {
         t(en: "Show in menu bar", zh: "菜单栏显示")
     }
     static var menuBarIconProviderHelp: String {
-        t(en: "Pick which tools' 5h and 7d usage to show on the menu-bar icon. Choose both for a combined line, one for a shorter readout, or none to keep the gauge icon.",
-          zh: "选择哪些工具的 5 小时与 7 日使用率显示在菜单栏图标上。两个都选会并排显示在一行，只选一个会更短，都不选则显示原本的表盘图标。")
+        t(en: "Pick which tools' 5h and 7d quota percentages to show on the menu-bar icon. Choose both for a combined line, one for a shorter readout, or none to keep the gauge icon.",
+          zh: "选择哪些工具的 5 小时与 7 日配额百分比显示在菜单栏图标上。两个都选会并排显示在一行，只选一个会更短，都不选则显示原本的表盘图标。")
     }
     /// Variant of `menuBarIconProviderHelp` used in Settings when only
     /// one provider is tracked — the "choose both" wording no longer
     /// applies because the other toggle isn't even rendered.
     static var menuBarIconProviderHelpSingle: String {
-        t(en: "Toggle whether this tool's 5h and 7d usage shows on the menu-bar icon, or leave it off to keep the gauge icon.",
-          zh: "勾选则在菜单栏图标上显示该工具的 5 小时与 7 日使用率；不勾选则保留原本的表盘图标。")
+        t(en: "Toggle whether this tool's 5h and 7d quota percentages show on the menu-bar icon, or leave it off to keep the gauge icon.",
+          zh: "勾选则在菜单栏图标上显示该工具的 5 小时与 7 日配额百分比；不勾选则保留原本的表盘图标。")
     }
 
     // Token unit language picker (Chinese-only — English mode already

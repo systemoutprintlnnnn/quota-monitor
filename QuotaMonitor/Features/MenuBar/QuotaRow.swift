@@ -5,6 +5,8 @@ import SwiftUI
 /// Inputs are deliberately primitives so we don't need protocol gymnastics
 /// to share between two slightly-different snapshot types.
 struct QuotaRow: View {
+    @Environment(SettingsStore.self) private var settings
+
     let title: String
     let usedPercent: Double
     let resetAt: Date
@@ -38,11 +40,11 @@ struct QuotaRow: View {
                 Text(title)
                     .font(.caption.weight(.medium))
                 Spacer()
-                Text("\(Int(usedPercent))%")
+                Text("\(Int(displayPercent))%")
                     .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(tintColor)
             }
-            ProgressView(value: usedPercent / 100)
+            ProgressView(value: progressValue)
                 .tint(tintColor)
             HStack(spacing: 4) {
                 Text(L10n.resetsRelative(relativeReset))
@@ -85,6 +87,14 @@ struct QuotaRow: View {
         case ..<85: .orange
         default: .red
         }
+    }
+
+    private var displayPercent: Double {
+        settings.quotaDisplayMode.displayPercent(forUsedPercent: usedPercent)
+    }
+
+    private var progressValue: Double {
+        settings.quotaDisplayMode.progressValue(forUsedPercent: usedPercent)
     }
 
     /// Locale-aware relative-time string for `resetAt` ("in 23 minutes" /

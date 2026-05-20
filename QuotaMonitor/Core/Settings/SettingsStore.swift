@@ -74,6 +74,17 @@ final class SettingsStore {
         didSet { defaults.set(menuBarHeadlineWindow.rawValue,
                               forKey: Keys.menuBarHeadlineWindow) }
     }
+    /// How quota percentages are presented in compact UI. The source data
+    /// remains `usedPercent`; this only changes the displayed number and
+    /// progress fill:
+    ///   - `.used`      → 37% means 37% consumed, bar is 37% full
+    ///   - `.remaining` → 63% means 63% left, bar is 63% full
+    ///
+    /// Default `.used` preserves the app's existing behavior.
+    var quotaDisplayMode: QuotaDisplayMode {
+        didSet { defaults.set(quotaDisplayMode.rawValue,
+                              forKey: Keys.quotaDisplayMode) }
+    }
     /// Which language to render compact token suffixes in (`5.1B Token`
     /// vs `51亿 Token`). The picker is hidden in English mode — there
     /// is only one sensible answer (B/M/K) so the switch would be
@@ -197,6 +208,29 @@ final class SettingsStore {
         var id: String { rawValue }
     }
 
+    enum QuotaDisplayMode: String, CaseIterable, Sendable, Identifiable {
+        case used
+        case remaining
+        var id: String { rawValue }
+
+        func displayPercent(forUsedPercent usedPercent: Double) -> Double {
+            let used = Self.clampPercent(usedPercent)
+            switch self {
+            case .used: return used
+            case .remaining: return 100 - used
+            }
+        }
+
+        func progressValue(forUsedPercent usedPercent: Double) -> Double {
+            displayPercent(forUsedPercent: usedPercent) / 100
+        }
+
+        private static func clampPercent(_ value: Double) -> Double {
+            guard value.isFinite else { return 0 }
+            return max(0, min(100, value))
+        }
+    }
+
     /// Locale to feed `.number.notation(.compactName).locale(...)` so all
     /// token counts pick up the user's choice. Reading this in a view
     /// body also subscribes that view to `tokenUnitLanguage` changes via
@@ -265,6 +299,8 @@ final class SettingsStore {
             defaults.bool(forKey: Keys.showDockIconForWindows)
         self.menuBarHeadlineWindow = (defaults.string(forKey: Keys.menuBarHeadlineWindow)
             .flatMap(HeadlineWindow.init(rawValue:))) ?? .last7d
+        self.quotaDisplayMode = (defaults.string(forKey: Keys.quotaDisplayMode)
+            .flatMap(QuotaDisplayMode.init(rawValue:))) ?? .used
         self.tokenUnitLanguage = (defaults.string(forKey: Keys.tokenUnitLanguage)
             .flatMap(TokenUnitLanguage.init(rawValue:))) ?? .followLanguage
         // Default false. A missing key reads as false via
@@ -512,6 +548,7 @@ final class SettingsStore {
         static let mirrorClaudeKeychainToFile = "settings.mirrorClaudeKeychainToFile"
         static let showDockIconForWindows = "settings.showDockIconForWindows"
         static let menuBarHeadlineWindow = "settings.menuBarHeadlineWindow"
+        static let quotaDisplayMode = "settings.quotaDisplayMode"
         static let tokenUnitLanguage = "settings.tokenUnitLanguage"
         static let codexFastModeBilling = "settings.codexFastModeBilling"
         static let developerModeEnabled = "settings.developerModeEnabled"

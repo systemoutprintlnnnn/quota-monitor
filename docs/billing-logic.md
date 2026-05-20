@@ -137,10 +137,11 @@ UI 不重复实现计费公式。
 ## 已知边界
 
 - 这是 API-equivalent spend，不是 Codex / Claude 订阅费用，也不一定等于供应商账单。
-- `above_200k_input_price_per_million` 和 `above_200k_output_price_per_million` 目前只保存，不参与计费公式。
+- Long Context / 大上下文 tier 暂不纳入当前计费要求。QuotaMonitor 的输入源是本地 Codex / Claude 使用日志，而不是供应商账单；这些日志没有稳定记录每次请求是否触发 long-context tier。因此 `above_200k_input_price_per_million` 和 `above_200k_output_price_per_million` 目前只保存，不参与计费公式。这是估算边界，不是当前必须解决的计费缺口。
+- 区域、服务层和执行层倍率暂不纳入当前计费要求。例如 regional processing、data residency、priority / flex / batch、Claude `inference_geo`、Opus fast tier、server-side tool 费用等，都需要逐请求字段或账单侧数据才能准确还原；当前本地日志源不足以支持，所以不作为 QuotaMonitor 的计费目标。
 - LiteLLM 当前只更新已存在于本地 catalog 的模型；新模型需要 seed 或本地建行。
 - `price_source = 'local'` 的行不会被 LiteLLM 或 seed 覆盖。
-- Codex Fast Mode 是全局估算，项目没有逐请求记录可判断某条事件是否真的走 Fast tier。
+- Codex Fast Mode 是全局开关。Codex JSONL 不提供逐请求 Fast / Standard tier，项目无法判断某条事件实际走哪个 tier；因此只能由用户选择“全部按 Standard”或“全部按 Fast Mode”重算。混合历史无法自动还原，这是当前设计的真实局限，暂时无法解决。
 - Codex 缺模型的历史事件按 `gpt-5` 估算，`model_inferred = true`。
 - Claude 旧数据必须经过 v6 迁移后的重新扫描，才能从“全部按 5m cache write”升级为 1h / 5m 分开计价。
 

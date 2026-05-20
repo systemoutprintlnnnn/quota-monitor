@@ -281,11 +281,31 @@ actor AppServerClient {
         do {
             try process.run()
             Log.appServer.debug("launched \(self.binaryPath, privacy: .public) app-server pid=\(process.processIdentifier)")
-            DeveloperLog.debug("launched app-server binary=\(self.binaryPath) pid=\(process.processIdentifier)", category: "appserver")
+            DeveloperLog.eventRecord(
+                "appserver.launch",
+                level: .debug,
+                category: "appserver",
+                provider: "codex",
+                result: "success",
+                fields: [
+                    "binary": .string(self.binaryPath),
+                    "pid": .int(Int(process.processIdentifier))
+                ])
         }
         catch {
             Log.appServer.error("launch failed: \(String(describing: error), privacy: .public)")
-            DeveloperLog.error("app-server launch failed binary=\(self.binaryPath) error=\(String(describing: error))", category: "appserver")
+            DeveloperLog.eventRecord(
+                "appserver.launch.fail",
+                level: .error,
+                category: "appserver",
+                provider: "codex",
+                result: "failure",
+                message: String(describing: error),
+                fields: [
+                    "binary": .string(self.binaryPath),
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
             throw ClientError.launchFailed(String(describing: error))
         }
 
@@ -305,13 +325,23 @@ actor AppServerClient {
                     if line.isEmpty { continue }
                     if let s = String(data: line, encoding: .utf8) {
                         Log.appServer.error("stderr: \(s, privacy: .public)")
-                        DeveloperLog.error("app-server stderr \(s)", category: "appserver")
+                        DeveloperLog.eventRecord(
+                            "appserver.stderr",
+                            level: .error,
+                            category: "appserver",
+                            provider: "codex",
+                            fields: ["stderr": .string(s)])
                     }
                 }
             }
             if !buffer.isEmpty, let s = String(data: buffer, encoding: .utf8) {
                 Log.appServer.error("stderr: \(s, privacy: .public)")
-                DeveloperLog.error("app-server stderr \(s)", category: "appserver")
+                DeveloperLog.eventRecord(
+                    "appserver.stderr",
+                    level: .error,
+                    category: "appserver",
+                    provider: "codex",
+                    fields: ["stderr": .string(s)])
             }
         }
 

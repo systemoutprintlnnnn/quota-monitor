@@ -114,6 +114,22 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                LabeledContent(L10n.quotaDisplayModeLabel) {
+                    Picker("", selection: $settings.quotaDisplayMode) {
+                        Text(L10n.quotaDisplayModeUsed)
+                            .tag(SettingsStore.QuotaDisplayMode.used)
+                        Text(L10n.quotaDisplayModeRemaining)
+                            .tag(SettingsStore.QuotaDisplayMode.remaining)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220, alignment: .trailing)
+                }
+                Text(L10n.quotaDisplayModeHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 // Which provider(s) the menu-bar slot displays. Multi-
                 // select: pick one, both (when both are tracked), or
                 // neither — an empty set is a valid resting state and

@@ -7,6 +7,8 @@ import SwiftUI
 ///   both        → "CX 5h 23% · 7d 8% | CC 5h 50% · 7d 12%"
 /// Falls back to a static SF Symbol when no selected provider has
 /// usable data yet (cold start, not signed in, transient API error).
+/// Percent values follow Settings → General → Menu bar → Quota
+/// percentage, so the same slot can show used or remaining quota.
 ///
 /// **Why text instead of an icon.** Text in the menu bar is the
 /// canonical pattern for "live quantity" indicators (Stats, iStat,
@@ -183,6 +185,7 @@ struct MenuBarLabelView: View {
     /// exact figure to one decimal).
     private func format(_ pct: Double?) -> String {
         guard let pct else { return "--" }
-        return "\(Int(max(0, min(100, pct.rounded()))))%"
+        let display = settings.quotaDisplayMode.displayPercent(forUsedPercent: pct)
+        return "\(Int(display.rounded()))%"
     }
 }

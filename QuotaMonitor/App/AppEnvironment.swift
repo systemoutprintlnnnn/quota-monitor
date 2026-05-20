@@ -76,10 +76,15 @@ final class AppEnvironment {
     var providerFilter: ProviderFilter = .all {
         didSet {
             if oldValue != providerFilter {
-                DeveloperLog.info(
-                    "providerFilter changed from=\(oldValue.rawValue) to=\(providerFilter.rawValue)",
-                    category: "settings")
-                refreshDashboard()
+                DeveloperLog.eventRecord(
+                    "settings.provider_filter.change",
+                    category: "settings",
+                    trigger: "user",
+                    fields: [
+                        "old_value": .string(oldValue.rawValue),
+                        "new_value": .string(providerFilter.rawValue)
+                    ])
+                refreshDashboard(trigger: "settings")
             }
         }
     }
@@ -93,7 +98,7 @@ final class AppEnvironment {
 
     init(appServer: AppServerClient = AppServerClient()) {
         self.appServer = appServer
-        DeveloperLog.info("AppEnvironment initialized", category: "app")
+        DeveloperLog.eventRecord("app.environment.init", category: "app", trigger: "launch")
         // Boot background polling immediately so it doesn't depend on the user
         // ever opening the menu bar. Idempotent — safe if .task fires later too.
         Task { [weak self] in
@@ -111,16 +116,23 @@ final class AppEnvironment {
 
     func ensureServices() throws -> (DatabaseManager, ImportEngine) {
         if let db = database, let eng = importEngine { return (db, eng) }
-        DeveloperLog.info(
-            "initializing services db=\(DatabaseManager.defaultURL().path)",
-            category: "app")
-        let db = try DatabaseManager(url: DatabaseManager.defaultURL())
-        let eng = ImportEngine(database: db)
-        self.database = db
-        self.importEngine = eng
-        self.claudeEngine = ClaudeImportEngine(database: db)
-        DeveloperLog.info("services initialized", category: "app")
-        return (db, eng)
+        let op = DeveloperLog.startOperation(
+            "services.init",
+            category: "app",
+            trigger: "lazy",
+            fields: ["database_path": .string(DatabaseManager.defaultURL().path)])
+        do {
+            let db = try DatabaseManager(url: DatabaseManager.defaultURL())
+            let eng = ImportEngine(database: db)
+            self.database = db
+            self.importEngine = eng
+            self.claudeEngine = ClaudeImportEngine(database: db)
+            DeveloperLog.finishOperation(op)
+            return (db, eng)
+        } catch {
+            DeveloperLog.failOperation(op, error: error)
+            throw error
+        }
     }
 
     /// Boot the background rate-limit poller. Idempotent.
@@ -133,11 +145,21 @@ final class AppEnvironment {
     /// once the user clicks Continue, so the gate self-clears.
     func startBackgroundPolling() {
         let snap = SettingsStore.snapshot()
-        DeveloperLog.info(
-            "startBackgroundPolling requested enabled=\(snap.enabledProviders.sorted().joined(separator: ",")) onboardingDone=\(snap.hasCompletedProviderOnboarding)",
-            category: "poller")
+        DeveloperLog.eventRecord(
+            "poller.background.start.request",
+            category: "poller",
+            trigger: "launch",
+            fields: [
+                "enabled_providers": .string(snap.enabledProviders.sorted().joined(separator: ",")),
+                "onboarding_done": .bool(snap.hasCompletedProviderOnboarding)
+            ])
         guard snap.hasCompletedProviderOnboarding else {
-            DeveloperLog.info("startBackgroundPolling skipped reason=onboarding", category: "poller")
+            DeveloperLog.eventRecord(
+                "poller.background.start.skip",
+                category: "poller",
+                trigger: "launch",
+                result: "skipped",
+                fields: ["reason": "onboarding"])
             return
         }
         do {
@@ -151,7 +173,17 @@ final class AppEnvironment {
             }
         } catch {
             self.lastError = String(describing: error)
-            DeveloperLog.error("startBackgroundPolling failed error=\(String(describing: error))", category: "poller")
+            DeveloperLog.eventRecord(
+                "poller.background.start.fail",
+                level: .error,
+                category: "poller",
+                trigger: "launch",
+                result: "failure",
+                message: String(describing: error),
+                fields: [
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
         }
     }
 
@@ -159,10 +191,16 @@ final class AppEnvironment {
     /// no-op if it's already running.
     private func startCodexPoller(database db: DatabaseManager) {
         guard poller == nil else {
-            DeveloperLog.debug("startCodexPoller skipped reason=already-running", category: "poller")
+            DeveloperLog.eventRecord(
+                "poller.codex.start.skip",
+                level: .debug,
+                category: "poller",
+                provider: "codex",
+                result: "skipped",
+                fields: ["reason": "already-running"])
             return
         }
-        DeveloperLog.info("startCodexPoller starting", category: "poller")
+        DeveloperLog.eventRecord("poller.codex.start", category: "poller", provider: "codex")
         // Warm-start: hydrate the last persisted Codex snapshot from the
         // DB so the menu bar has something to show before the first
         // live poll lands (which can take seconds in the happy case and
@@ -202,10 +240,16 @@ final class AppEnvironment {
     /// safe.
     private func startClaudePoller(database db: DatabaseManager) {
         guard claudeUsagePoller == nil else {
-            DeveloperLog.debug("startClaudePoller skipped reason=already-running", category: "poller")
+            DeveloperLog.eventRecord(
+                "poller.claude.start.skip",
+                level: .debug,
+                category: "poller",
+                provider: "claude",
+                result: "skipped",
+                fields: ["reason": "already-running"])
             return
         }
-        DeveloperLog.info("startClaudePoller starting", category: "poller")
+        DeveloperLog.eventRecord("poller.claude.start", category: "poller", provider: "claude")
         // Warm-start: hydrate the last persisted Claude snapshot from
         // the DB so the UI has something to show before the first
         // network poll lands. Avoids the "blank + 'unavailable'" first
@@ -248,7 +292,7 @@ final class AppEnvironment {
     /// reflect "we are no longer tracking this".
     private func stopCodexPoller() {
         guard let p = poller else { return }
-        DeveloperLog.info("stopCodexPoller", category: "poller")
+        DeveloperLog.eventRecord("poller.codex.stop", category: "poller", provider: "codex")
         self.poller = nil
         self.latestRateLimits = nil
         Task { await p.stop() }
@@ -256,7 +300,7 @@ final class AppEnvironment {
 
     private func stopClaudePoller() {
         guard let cp = claudeUsagePoller else { return }
-        DeveloperLog.info("stopClaudePoller", category: "poller")
+        DeveloperLog.eventRecord("poller.claude.stop", category: "poller", provider: "claude")
         self.claudeUsagePoller = nil
         self.latestClaudeUsage = nil
         self.lastClaudeUsageError = nil
@@ -270,9 +314,11 @@ final class AppEnvironment {
     /// the UI immediately matches the new set.
     func applyEnabledProviders() {
         let enabled = SettingsStore.snapshot().enabledProviders
-        DeveloperLog.info(
-            "applyEnabledProviders enabled=\(enabled.sorted().joined(separator: ","))",
-            category: "settings")
+        DeveloperLog.eventRecord(
+            "settings.enabled_providers.apply",
+            category: "settings",
+            trigger: "settings",
+            fields: ["enabled_providers": .string(enabled.sorted().joined(separator: ","))])
         do {
             let (db, _) = try ensureServices()
             if enabled.contains("codex") {
@@ -287,7 +333,17 @@ final class AppEnvironment {
             }
         } catch {
             self.lastError = String(describing: error)
-            DeveloperLog.error("applyEnabledProviders failed error=\(String(describing: error))", category: "settings")
+            DeveloperLog.eventRecord(
+                "settings.enabled_providers.apply.fail",
+                level: .error,
+                category: "settings",
+                trigger: "settings",
+                result: "failure",
+                message: String(describing: error),
+                fields: [
+                    "error_type": .string(String(describing: type(of: error))),
+                    "error_message": .string(error.localizedDescription)
+                ])
         }
         // Snap the toolbar filter off a disabled provider. We never
         // synthesize a single-provider filter — the union view (`.all`)
@@ -300,18 +356,20 @@ final class AppEnvironment {
             // didSet on providerFilter would have done this for us in
             // the snap branch; in the no-snap branch we still need to
             // re-render because composition / forecast filtering changed.
-            refreshDashboard()
+            refreshDashboard(trigger: "settings")
         }
-        refreshMenuBar()
+        refreshMenuBar(trigger: "settings")
     }
 
     /// Apply runtime-mutable settings without restarting the app.
     /// Path-based settings still need a relaunch (we surface that in the UI).
     func applySettings() {
         let snap = SettingsStore.snapshot()
-        DeveloperLog.info(
-            "applySettings pollIntervalSeconds=\(snap.pollIntervalSeconds)",
-            category: "settings")
+        DeveloperLog.eventRecord(
+            "settings.runtime.apply",
+            category: "settings",
+            trigger: "settings",
+            fields: ["poll_interval_seconds": .int(snap.pollIntervalSeconds)])
         if let p = poller {
             Task { await p.updateInterval(.seconds(snap.pollIntervalSeconds)) }
         }
@@ -331,20 +389,42 @@ final class AppEnvironment {
     /// button passes `false` because clicking it is explicit user intent.
     /// Keeping this in one place guarantees both paths stay in sync (e.g.
     /// the scan-progress bar appears for either when a scan actually runs).
-    func refreshAll(throttle: Bool) {
-        DeveloperLog.info("refreshAll requested throttle=\(throttle)", category: "app")
-        refreshRateLimits(minInterval: throttle ? 30 : nil)
-        refreshClaudeUsage()              // own internal 60s spam gap
-        runScan(minInterval: throttle ? 20 : nil)
+    func refreshAll(throttle: Bool, trigger: String) {
+        let op = DeveloperLog.startOperation(
+            "refresh.all",
+            category: "app",
+            trigger: trigger,
+            fields: ["throttle": .bool(throttle)])
+        refreshRateLimits(
+            minInterval: throttle ? 30 : nil,
+            trigger: trigger,
+            parentOperation: op)
+        refreshClaudeUsage(trigger: trigger, parentOperation: op)
+        runScan(
+            minInterval: throttle ? 20 : nil,
+            trigger: trigger,
+            parentOperation: op)
+        DeveloperLog.finishOperation(op, result: "scheduled")
         // runScan's tail re-runs refreshMenuBar(), so no need to repeat here.
     }
 
     /// `minInterval` is honoured **only** by the auto-refresh-on-popover-open
     /// caller (it passes a non-nil interval). The explicit Refresh button
     /// passes nil → no gate → user-driven intent is never throttled.
-    func refreshRateLimits(minInterval: TimeInterval? = nil) {
+    func refreshRateLimits(
+        minInterval: TimeInterval? = nil,
+        trigger: String = "manual",
+        parentOperation: DeveloperLogOperation? = nil
+    ) {
         guard !isRefreshingRateLimits else {
-            DeveloperLog.info("refreshRateLimits skipped reason=already-refreshing", category: "poller")
+            DeveloperLog.eventRecord(
+                "ratelimits.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "codex",
+                result: "skipped",
+                fields: ["reason": "already-refreshing"])
             return
         }
         let snap = SettingsStore.snapshot()
@@ -354,7 +434,14 @@ final class AppEnvironment {
         // Codex app-server child before the user has even seen the
         // setup wizard.
         guard snap.hasCompletedProviderOnboarding else {
-            DeveloperLog.info("refreshRateLimits skipped reason=onboarding", category: "poller")
+            DeveloperLog.eventRecord(
+                "ratelimits.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "codex",
+                result: "skipped",
+                fields: ["reason": "onboarding"])
             return
         }
         // The Refresh button is hidden when Codex is disabled, but a
@@ -362,20 +449,43 @@ final class AppEnvironment {
         // in flight) could still call this — guard so we don't spawn a
         // child app-server process the user has explicitly opted out of.
         guard snap.enabledProviders.contains("codex") else {
-            DeveloperLog.info("refreshRateLimits skipped reason=codex-disabled", category: "poller")
+            DeveloperLog.eventRecord(
+                "ratelimits.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "codex",
+                result: "skipped",
+                fields: ["reason": "codex-disabled"])
             return
         }
         if let interval = minInterval, let last = lastRateLimitsRefreshAt,
            Date().timeIntervalSince(last) < interval {
-            DeveloperLog.info("refreshRateLimits skipped reason=throttled interval=\(interval)", category: "poller")
+            DeveloperLog.eventRecord(
+                "ratelimits.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "codex",
+                result: "skipped",
+                fields: [
+                    "reason": "throttled",
+                    "min_interval_seconds": .double(interval),
+                    "elapsed_seconds": .double(Date().timeIntervalSince(last))
+                ])
             return
         }
         isRefreshingRateLimits = true
         lastError = nil
-        let minIntervalLabel = minInterval.map { "\($0)" } ?? "none"
-        DeveloperLog.info("refreshRateLimits started minInterval=\(minIntervalLabel)", category: "poller")
+        let op = DeveloperLog.startOperation(
+            "ratelimits.refresh",
+            category: "poller",
+            trigger: trigger,
+            provider: "codex",
+            parent: parentOperation,
+            fields: ["min_interval_seconds": minInterval.map(DeveloperLogValue.double) ?? .string("none")])
 
-        Task { [appServer] in
+        Task { [appServer, op] in
             defer { Task { @MainActor in self.isRefreshingRateLimits = false } }
             // Codex side only. Claude `/usage` is fetched separately
             // via `refreshClaudeUsage()` — same Refresh button, but
@@ -395,12 +505,16 @@ final class AppEnvironment {
                     self.latestRateLimits = snapshot
                     self.lastRateLimitsRefreshAt = Date()
                 }
-                DeveloperLog.info(
-                    "refreshRateLimits succeeded primary=\(snapshot.primary?.usedPercent ?? -1) secondary=\(snapshot.secondary?.usedPercent ?? -1)",
-                    category: "poller")
+                DeveloperLog.finishOperation(
+                    op,
+                    fields: [
+                        "plan_type": .string(snapshot.planType ?? ""),
+                        "primary_used_percent": .double(snapshot.primary?.usedPercent ?? -1),
+                        "secondary_used_percent": .double(snapshot.secondary?.usedPercent ?? -1)
+                    ])
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }
-                DeveloperLog.error("refreshRateLimits failed error=\(String(describing: error))", category: "poller")
+                DeveloperLog.failOperation(op, error: error)
             }
         }
     }
@@ -410,23 +524,52 @@ final class AppEnvironment {
     /// the call actually goes through, and the snapshot (if any) lands
     /// via the `onSnapshot` callback. We surface nothing on a skip — a
     /// silently-dropped click is preferable to nag toasts.
-    func refreshClaudeUsage() {
+    func refreshClaudeUsage(
+        trigger: String = "manual",
+        parentOperation: DeveloperLogOperation? = nil
+    ) {
         let snap = SettingsStore.snapshot()
         // Hard gate: see `refreshRateLimits` — Keychain reads in
         // particular must not fire before the onboarding window.
         guard snap.hasCompletedProviderOnboarding else {
-            DeveloperLog.info("refreshClaudeUsage skipped reason=onboarding", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "claude",
+                result: "skipped",
+                fields: ["reason": "onboarding"])
             return
         }
         guard snap.enabledProviders.contains("claude") else {
-            DeveloperLog.info("refreshClaudeUsage skipped reason=claude-disabled", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "claude",
+                result: "skipped",
+                fields: ["reason": "claude-disabled"])
             return
         }
         guard let cp = claudeUsagePoller else {
-            DeveloperLog.info("refreshClaudeUsage skipped reason=poller-not-started", category: "poller")
+            DeveloperLog.eventRecord(
+                "claude_usage.refresh.skip",
+                category: "poller",
+                operation: parentOperation,
+                trigger: trigger,
+                provider: "claude",
+                result: "skipped",
+                fields: ["reason": "poller-not-started"])
             return
         }
-        DeveloperLog.info("refreshClaudeUsage requested", category: "poller")
+        DeveloperLog.eventRecord(
+            "claude_usage.refresh.request",
+            category: "poller",
+            operation: parentOperation,
+            trigger: trigger,
+            provider: "claude")
         Task { await cp.pollOnce() }
     }
 
@@ -439,7 +582,11 @@ final class AppEnvironment {
     /// re-running the same usage_events scan a second time. Nil means
     /// "no shared result, fetch fresh" — that's the right default for the
     /// stand-alone paths (popover open, scan completion, scenePhase wakeup).
-    func refreshMenuBar(precomputedBlocks: BillingBlocks.Snapshot? = nil) {
+    func refreshMenuBar(
+        precomputedBlocks: BillingBlocks.Snapshot? = nil,
+        trigger: String = "internal",
+        parentOperation: DeveloperLogOperation? = nil
+    ) {
         guard !isLoadingMenuBar else {
             // Coalesce: a refresh is already running. Mark a trailing
             // re-run so the chained call (typically from
@@ -449,19 +596,30 @@ final class AppEnvironment {
             // can't reuse `precomputedBlocks` (they may be stale by
             // the time it fires) so it'll re-read BillingBlocks.
             menuBarRefreshPending = true
-            DeveloperLog.info("refreshMenuBar queued reason=already-loading", category: "ui")
+            DeveloperLog.eventRecord(
+                "menubar.refresh.skip",
+                category: "ui",
+                operation: parentOperation,
+                trigger: trigger,
+                result: "queued",
+                fields: ["reason": "already-loading"])
             return
         }
         isLoadingMenuBar = true
-        DeveloperLog.info("refreshMenuBar started precomputedBlocks=\(precomputedBlocks != nil)", category: "ui")
-        Task { [weak self] in
+        let op = DeveloperLog.startOperation(
+            "menubar.refresh",
+            category: "ui",
+            trigger: trigger,
+            parent: parentOperation,
+            fields: ["precomputed_blocks": .bool(precomputedBlocks != nil)])
+        Task { [weak self, op] in
             guard let self else { return }
             defer {
                 Task { @MainActor in
                     self.isLoadingMenuBar = false
                     if self.menuBarRefreshPending {
                         self.menuBarRefreshPending = false
-                        self.refreshMenuBar()
+                        self.refreshMenuBar(trigger: "coalesced")
                     }
                 }
             }
@@ -477,24 +635,38 @@ final class AppEnvironment {
                         anthropicBlocks: blocks)
                 }
                 await MainActor.run { self.menuBarSnapshot = snap }
-                DeveloperLog.info("refreshMenuBar succeeded", category: "ui")
+                DeveloperLog.finishOperation(op)
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }
-                DeveloperLog.error("refreshMenuBar failed error=\(String(describing: error))", category: "ui")
+                DeveloperLog.failOperation(op, error: error)
             }
         }
     }
 
-    func refreshDashboard() {
+    func refreshDashboard(
+        trigger: String = "internal",
+        parentOperation: DeveloperLogOperation? = nil
+    ) {
         guard !isLoadingDashboard else {
-            DeveloperLog.info("refreshDashboard skipped reason=already-loading", category: "ui")
+            DeveloperLog.eventRecord(
+                "dashboard.refresh.skip",
+                category: "ui",
+                operation: parentOperation,
+                trigger: trigger,
+                result: "skipped",
+                fields: ["reason": "already-loading"])
             return
         }
         isLoadingDashboard = true
 
         let filter = providerFilter
-        DeveloperLog.info("refreshDashboard started filter=\(filter.rawValue)", category: "ui")
-        Task { [weak self] in
+        let op = DeveloperLog.startOperation(
+            "dashboard.refresh",
+            category: "ui",
+            trigger: trigger,
+            parent: parentOperation,
+            fields: ["filter": .string(filter.rawValue)])
+        Task { [weak self, op] in
             guard let self else { return }
             defer { Task { @MainActor in self.isLoadingDashboard = false } }
             do {
@@ -514,11 +686,22 @@ final class AppEnvironment {
                 // Menu bar is provider-agnostic — refresh alongside the
                 // dashboard so price edits, filter toggles, and settings
                 // changes keep both views in sync.
-                self.refreshMenuBar(precomputedBlocks: blocks)
-                DeveloperLog.info("refreshDashboard succeeded filter=\(filter.rawValue)", category: "ui")
+                self.refreshMenuBar(
+                    precomputedBlocks: blocks,
+                    trigger: "dashboard",
+                    parentOperation: op)
+                DeveloperLog.finishOperation(
+                    op,
+                    fields: [
+                        "filter": .string(filter.rawValue),
+                        "has_billing_blocks": .bool(blocks != nil)
+                    ])
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }
-                DeveloperLog.error("refreshDashboard failed filter=\(filter.rawValue) error=\(String(describing: error))", category: "ui")
+                DeveloperLog.failOperation(
+                    op,
+                    error: error,
+                    fields: ["filter": .string(filter.rawValue)])
             }
         }
     }
@@ -530,9 +713,11 @@ final class AppEnvironment {
     /// (default), stay in `.accessory` — windows still get key focus
     /// from `activate(ignoringOtherApps:)` alone.
     func activateForWindow() {
-        DeveloperLog.info(
-            "activateForWindow showDockIcon=\(SettingsStore.shared.showDockIconForWindows)",
-            category: "ui")
+        DeveloperLog.eventRecord(
+            "window.activate",
+            category: "ui",
+            trigger: "user",
+            fields: ["show_dock_icon": .bool(SettingsStore.shared.showDockIconForWindows)])
         if SettingsStore.shared.showDockIconForWindows {
             NSApp.setActivationPolicy(.regular)
         }
@@ -549,7 +734,7 @@ final class AppEnvironment {
     /// `.accessory`, and we no-op.
     func demoteToAccessory() {
         guard NSApp.activationPolicy() == .regular else { return }
-        DeveloperLog.info("demoteToAccessory", category: "ui")
+        DeveloperLog.eventRecord("window.demote_to_accessory", category: "ui")
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -591,9 +776,14 @@ final class AppEnvironment {
             return true
         }
         guard anyWindowOpen else { return }
-        DeveloperLog.info(
-            "applyDockIconPolicy anyWindowOpen=true showDockIcon=\(SettingsStore.shared.showDockIconForWindows)",
-            category: "settings")
+        DeveloperLog.eventRecord(
+            "settings.dock_icon_policy.apply",
+            category: "settings",
+            trigger: "settings",
+            fields: [
+                "any_window_open": true,
+                "show_dock_icon": .bool(SettingsStore.shared.showDockIconForWindows)
+            ])
         if SettingsStore.shared.showDockIconForWindows {
             NSApp.setActivationPolicy(.regular)
         } else {

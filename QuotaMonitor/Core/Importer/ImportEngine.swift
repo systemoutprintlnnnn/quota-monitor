@@ -120,10 +120,26 @@ actor ImportEngine {
             errors: errors)
 
         Log.importer.info("scan ok scanned=\(report.scannedFiles) changed=\(report.changedFiles) sessions=\(report.importedSessions) events=\(report.importedEvents) samples=\(report.importedRateLimitSamples) errors=\(report.errors.count)")
-        DeveloperLog.info("import scan ok scanned=\(report.scannedFiles) changed=\(report.changedFiles) sessions=\(report.importedSessions) events=\(report.importedEvents) samples=\(report.importedRateLimitSamples) errors=\(report.errors.count)", category: "importer")
+        DeveloperLog.eventRecord(
+            "importer.scan.finish",
+            category: "importer",
+            result: "success",
+            fields: [
+                "scanned_files": .int(report.scannedFiles),
+                "changed_files": .int(report.changedFiles),
+                "imported_sessions": .int(report.importedSessions),
+                "imported_events": .int(report.importedEvents),
+                "imported_rate_limit_samples": .int(report.importedRateLimitSamples),
+                "errors": .int(report.errors.count)
+            ])
         for err in report.errors.prefix(5) {
             Log.importer.error("\(err, privacy: .public)")
-            DeveloperLog.error("import scan error \(err)", category: "importer")
+            DeveloperLog.eventRecord(
+                "importer.scan.error",
+                level: .error,
+                category: "importer",
+                result: "failure",
+                message: err)
         }
 
         return report

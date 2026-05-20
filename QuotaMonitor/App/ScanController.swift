@@ -9,31 +9,65 @@ extension AppEnvironment {
     /// `minInterval` is honoured **only** by the auto-refresh-on-popover-open
     /// caller. Refresh button presses pass nil → always run, because the
     /// user expressing explicit intent should never be silently throttled.
-    func runScan(minInterval: TimeInterval? = nil) {
+    func runScan(
+        minInterval: TimeInterval? = nil,
+        trigger: String = "manual",
+        parentOperation: DeveloperLogOperation? = nil
+    ) {
         guard !isScanning else {
-            DeveloperLog.info("runScan skipped reason=already-scanning", category: "scan")
+            DeveloperLog.eventRecord(
+                "scan.run.skip",
+                category: "scan",
+                operation: parentOperation,
+                trigger: trigger,
+                result: "skipped",
+                fields: ["reason": "already-scanning"])
             return
         }
         // Hard gate: don't touch ~/.codex or ~/.claude until the user
         // has finished onboarding. Same rationale as the network
         // refreshes in AppEnvironment — first-launch should see the
         // setup wizard before anything starts probing user folders.
-        guard SettingsStore.snapshot().hasCompletedProviderOnboarding else {
-            DeveloperLog.info("runScan skipped reason=onboarding", category: "scan")
+        let initialSnap = SettingsStore.snapshot()
+        guard initialSnap.hasCompletedProviderOnboarding else {
+            DeveloperLog.eventRecord(
+                "scan.run.skip",
+                category: "scan",
+                operation: parentOperation,
+                trigger: trigger,
+                result: "skipped",
+                fields: ["reason": "onboarding"])
             return
         }
         if let interval = minInterval, let last = lastScanAt,
            Date().timeIntervalSince(last) < interval {
-            DeveloperLog.info("runScan skipped reason=throttled interval=\(interval)", category: "scan")
+            DeveloperLog.eventRecord(
+                "scan.run.skip",
+                category: "scan",
+                operation: parentOperation,
+                trigger: trigger,
+                result: "skipped",
+                fields: [
+                    "reason": "throttled",
+                    "min_interval_seconds": .double(interval),
+                    "elapsed_seconds": .double(Date().timeIntervalSince(last))
+                ])
             return
         }
         isScanning = true
         lastError = nil
         let scanRunID = beginScanProgress()
-        let minIntervalLabel = minInterval.map { "\($0)" } ?? "none"
-        DeveloperLog.info("runScan started runID=\(scanRunID.uuidString) minInterval=\(minIntervalLabel)", category: "scan")
+        let op = DeveloperLog.startOperation(
+            "scan.run",
+            category: "scan",
+            trigger: trigger,
+            parent: parentOperation,
+            fields: [
+                "scan_run_id": .string(scanRunID.uuidString),
+                "min_interval_seconds": minInterval.map(DeveloperLogValue.double) ?? .string("none")
+            ])
 
-        Task { [weak self] in
+        Task { [weak self, op] in
             guard let self else { return }
             defer {
                 Task { @MainActor in
@@ -47,9 +81,15 @@ extension AppEnvironment {
                 let snap = SettingsStore.snapshot()
                 let enabled = snap.enabledProviders
                 let fastMode = snap.codexFastModeBilling
-                DeveloperLog.info(
-                    "runScan providers=\(enabled.sorted().joined(separator: ",")) fastMode=\(fastMode)",
-                    category: "scan")
+                DeveloperLog.eventRecord(
+                    "scan.providers",
+                    category: "scan",
+                    operation: op,
+                    trigger: trigger,
+                    fields: [
+                        "enabled_providers": .string(enabled.sorted().joined(separator: ",")),
+                        "codex_fast_mode_billing": .bool(fastMode)
+                    ])
                 let progressHandler: ScanProgressHandler = { [weak self] update in
                     await MainActor.run {
                         self?.handleScanProgressUpdate(update, runID: scanRunID)
@@ -99,9 +139,17 @@ extension AppEnvironment {
                     self.lastScanReport = merged
                     self.lastScanAt = Date()
                 }
-                DeveloperLog.info(
-                    "runScan succeeded runID=\(scanRunID.uuidString) scanned=\(merged.scannedFiles) changed=\(merged.changedFiles) sessions=\(merged.importedSessions) events=\(merged.importedEvents) rateLimitSamples=\(merged.importedRateLimitSamples) errors=\(merged.errors.count)",
-                    category: "scan")
+                DeveloperLog.finishOperation(
+                    op,
+                    fields: [
+                        "scan_run_id": .string(scanRunID.uuidString),
+                        "scanned_files": .int(merged.scannedFiles),
+                        "changed_files": .int(merged.changedFiles),
+                        "imported_sessions": .int(merged.importedSessions),
+                        "imported_events": .int(merged.importedEvents),
+                        "imported_rate_limit_samples": .int(merged.importedRateLimitSamples),
+                        "errors": .int(merged.errors.count)
+                    ])
                 // runScan() typically fires from the popover (open +
                 // Refresh button). Always refresh the menu bar; only
                 // refresh the Dashboard when its window is actually
@@ -119,65 +167,83 @@ extension AppEnvironment {
                     }
                 }
                 await MainActor.run {
-                    self.refreshMenuBar(precomputedBlocks: blocks)
+                    self.refreshMenuBar(
+                        precomputedBlocks: blocks,
+                        trigger: "scan",
+                        parentOperation: op)
                     if dashboardVisible {
-                        self.refreshDashboard()
+                        self.refreshDashboard(trigger: "scan", parentOperation: op)
                     }
                 }
             } catch {
                 await MainActor.run { self.lastError = String(describing: error) }
-                DeveloperLog.error("runScan failed runID=\(scanRunID.uuidString) error=\(String(describing: error))", category: "scan")
+                DeveloperLog.failOperation(
+                    op,
+                    error: error,
+                    fields: ["scan_run_id": .string(scanRunID.uuidString)])
             }
         }
     }
 
     /// Stream all usage_events to a CSV file at `url`.
     func exportUsageEventsCSV(to url: URL) async throws -> Int {
-        DeveloperLog.info("exportUsageEventsCSV started path=\(url.path)", category: "export")
-        let (db, _) = try ensureServices()
-        let count = try await db.pool.read { conn in
-            let rows = try Row.fetchCursor(conn, sql: """
-                SELECT ue.id, ue.session_id, ue.timestamp, ue.model_id,
-                       ue.input_tokens, ue.cached_input_tokens, ue.output_tokens,
-                       ue.reasoning_output_tokens, ue.total_tokens, ue.value_usd,
-                       s.title, s.agent_nickname
-                FROM usage_events ue
-                LEFT JOIN sessions s ON s.session_id = ue.session_id
-                ORDER BY ue.timestamp ASC
-                """)
-            let header = "id,session_id,timestamp,model_id,input,cached,output,reasoning,total,value_usd,title,agent\n"
-            guard FileManager.default.createFile(atPath: url.path, contents: header.data(using: .utf8)) else {
-                throw NSError(domain: "QuotaMonitor", code: 1,
-                              userInfo: [NSLocalizedDescriptionKey: "Could not create file at \(url.path)"])
-            }
-            let handle = try FileHandle(forWritingTo: url)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            var count = 0
-            while let row = try rows.next() {
-                let line = Self.csvRow([
-                    "\(row["id"] as Int64? ?? 0)",
-                    row["session_id"] as String? ?? "",
-                    row["timestamp"] as String? ?? "",
-                    row["model_id"] as String? ?? "",
-                    "\(row["input_tokens"] as Int64? ?? 0)",
-                    "\(row["cached_input_tokens"] as Int64? ?? 0)",
-                    "\(row["output_tokens"] as Int64? ?? 0)",
-                    "\(row["reasoning_output_tokens"] as Int64? ?? 0)",
-                    "\(row["total_tokens"] as Int64? ?? 0)",
-                    String(format: "%.6f", row["value_usd"] as Double? ?? 0),
-                    row["title"] as String? ?? "",
-                    row["agent_nickname"] as String? ?? ""
-                ])
-                if let data = (line + "\n").data(using: .utf8) {
-                    try handle.write(contentsOf: data)
+        let op = DeveloperLog.startOperation(
+            "export.usage_events_csv",
+            category: "export",
+            trigger: "user",
+            fields: ["path": .string(url.path)])
+        do {
+            let (db, _) = try ensureServices()
+            let count = try await db.pool.read { conn in
+                let rows = try Row.fetchCursor(conn, sql: """
+                    SELECT ue.id, ue.session_id, ue.timestamp, ue.model_id,
+                           ue.input_tokens, ue.cached_input_tokens, ue.output_tokens,
+                           ue.reasoning_output_tokens, ue.total_tokens, ue.value_usd,
+                           s.title, s.agent_nickname
+                    FROM usage_events ue
+                    LEFT JOIN sessions s ON s.session_id = ue.session_id
+                    ORDER BY ue.timestamp ASC
+                    """)
+                let header = "id,session_id,timestamp,model_id,input,cached,output,reasoning,total,value_usd,title,agent\n"
+                guard FileManager.default.createFile(atPath: url.path, contents: header.data(using: .utf8)) else {
+                    throw NSError(domain: "QuotaMonitor", code: 1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Could not create file at \(url.path)"])
                 }
-                count += 1
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                var count = 0
+                while let row = try rows.next() {
+                    let line = Self.csvRow([
+                        "\(row["id"] as Int64? ?? 0)",
+                        row["session_id"] as String? ?? "",
+                        row["timestamp"] as String? ?? "",
+                        row["model_id"] as String? ?? "",
+                        "\(row["input_tokens"] as Int64? ?? 0)",
+                        "\(row["cached_input_tokens"] as Int64? ?? 0)",
+                        "\(row["output_tokens"] as Int64? ?? 0)",
+                        "\(row["reasoning_output_tokens"] as Int64? ?? 0)",
+                        "\(row["total_tokens"] as Int64? ?? 0)",
+                        String(format: "%.6f", row["value_usd"] as Double? ?? 0),
+                        row["title"] as String? ?? "",
+                        row["agent_nickname"] as String? ?? ""
+                    ])
+                    if let data = (line + "\n").data(using: .utf8) {
+                        try handle.write(contentsOf: data)
+                    }
+                    count += 1
+                }
+                return count
             }
+            DeveloperLog.finishOperation(op, fields: [
+                "path": .string(url.path),
+                "rows": .int(count)
+            ])
             return count
+        } catch {
+            DeveloperLog.failOperation(op, error: error, fields: ["path": .string(url.path)])
+            throw error
         }
-        DeveloperLog.info("exportUsageEventsCSV succeeded path=\(url.path) rows=\(count)", category: "export")
-        return count
     }
 
     nonisolated static func mergeScanReports(
@@ -194,7 +260,11 @@ extension AppEnvironment {
 
     func beginScanProgress() -> UUID {
         let runID = UUID()
-        DeveloperLog.debug("beginScanProgress runID=\(runID.uuidString)", category: "scan")
+        DeveloperLog.eventRecord(
+            "scan.progress.begin",
+            level: .debug,
+            category: "scan",
+            fields: ["scan_run_id": .string(runID.uuidString)])
         scanProgressRunID = runID
         scanProgressStates = [:]
         scanProgress = ScanProgress(
@@ -207,9 +277,17 @@ extension AppEnvironment {
 
     func handleScanProgressUpdate(_ update: ScanProgressUpdate, runID: UUID) {
         guard scanProgressRunID == runID, isScanning else { return }
-        DeveloperLog.debug(
-            "scanProgress runID=\(runID.uuidString) provider=\(update.provider) completed=\(update.completedFiles) total=\(update.totalFiles) file=\(update.currentFile ?? "")",
-            category: "scan")
+        DeveloperLog.eventRecord(
+            "scan.progress.update",
+            level: .debug,
+            category: "scan",
+            provider: update.provider,
+            fields: [
+                "scan_run_id": .string(runID.uuidString),
+                "completed_files": .int(update.completedFiles),
+                "total_files": .int(update.totalFiles),
+                "current_file": .string(update.currentFile ?? "")
+            ])
         scanProgressStates[update.provider] = ScanProviderProgress(
             completedFiles: update.completedFiles,
             totalFiles: update.totalFiles,
@@ -219,13 +297,21 @@ extension AppEnvironment {
 
     func markScanPricing(runID: UUID) {
         guard scanProgressRunID == runID, isScanning else { return }
-        DeveloperLog.debug("scanProgress pricing runID=\(runID.uuidString)", category: "scan")
+        DeveloperLog.eventRecord(
+            "scan.progress.pricing",
+            level: .debug,
+            category: "scan",
+            fields: ["scan_run_id": .string(runID.uuidString)])
         scanProgress = Self.aggregateScanProgress(scanProgressStates, phase: .pricing)
     }
 
     func clearScanProgress(runID: UUID) {
         guard scanProgressRunID == runID else { return }
-        DeveloperLog.debug("clearScanProgress runID=\(runID.uuidString)", category: "scan")
+        DeveloperLog.eventRecord(
+            "scan.progress.clear",
+            level: .debug,
+            category: "scan",
+            fields: ["scan_run_id": .string(runID.uuidString)])
         scanProgressStates = [:]
         scanProgressRunID = nil
         scanProgress = nil

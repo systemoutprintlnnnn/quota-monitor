@@ -145,12 +145,21 @@ extension AppEnvironment {
     /// last-close. Adding plumbing to drain them cleanly would just
     /// be ceremony.
     func performUninstall() {
-        DeveloperLog.warning("performUninstall started", category: "uninstall")
+        let op = DeveloperLog.startOperation(
+            "uninstall.perform",
+            category: "uninstall",
+            trigger: "user")
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser
         let targets = Self.uninstallTargets(
             home: home, bundleIDs: Self.uninstallBundleIDs)
-        DeveloperLog.warning("performUninstall targets=\(targets.count)", category: "uninstall")
+        DeveloperLog.eventRecord(
+            "uninstall.targets",
+            level: .warning,
+            category: "uninstall",
+            operation: op,
+            trigger: "user",
+            fields: ["targets": .int(targets.count)])
 
         // 1. UserDefaults — flush the in-memory domain so even if
         //    `cfprefsd` had buffered writes pending, they won't
@@ -163,7 +172,12 @@ extension AppEnvironment {
         // 2. Files. `removeItem` throws on missing — swallow per call.
         for url in targets {
             try? fm.removeItem(at: url)
-            DeveloperLog.info("performUninstall removed target=\(url.path)", category: "uninstall")
+            DeveloperLog.eventRecord(
+                "uninstall.target.remove",
+                category: "uninstall",
+                operation: op,
+                trigger: "user",
+                fields: ["path": .string(url.path)])
         }
 
         // 3. Move trusted .app bundles to Trash via NSWorkspace.recycle.
@@ -176,7 +190,17 @@ extension AppEnvironment {
             home: home,
             runningBundleURL: Bundle.main.bundleURL,
             allowedBundleIDs: Self.uninstallBundleIDs)
-        DeveloperLog.warning("performUninstall recycling appBundles=\(appBundles.map(\.path).joined(separator: ","))", category: "uninstall")
+        DeveloperLog.eventRecord(
+            "uninstall.app_bundles.recycle",
+            level: .warning,
+            category: "uninstall",
+            operation: op,
+            trigger: "user",
+            fields: ["app_bundles": .string(appBundles.map(\.path).joined(separator: ","))])
+        DeveloperLog.finishOperation(op, fields: [
+            "targets": .int(targets.count),
+            "app_bundles": .int(appBundles.count)
+        ])
         NSWorkspace.shared.recycle(appBundles) { _, _ in
             // Hop back to MainActor — recycle's completion handler
             // is documented as main-thread, but the closure isn't

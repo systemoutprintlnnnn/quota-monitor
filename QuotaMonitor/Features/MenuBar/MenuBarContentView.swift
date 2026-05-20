@@ -57,7 +57,7 @@ struct MenuBarContentView: View {
             // guards would catch this too, but bailing at the source
             // also avoids touching `SettingsStore.snapshot()` for a no-op.
             guard !settings.needsProviderOnboarding else { return }
-            env.refreshAll(throttle: true)
+            env.refreshAll(throttle: true, trigger: "popover")
         }
     }
 
@@ -120,7 +120,7 @@ struct MenuBarContentView: View {
                 // the user being able to see a corresponding scan
                 // progress bar.
                 Button(env.isScanning ? L10n.refreshing : L10n.refresh) {
-                    env.refreshAll(throttle: false)
+                    env.refreshAll(throttle: false, trigger: "manual")
                 }
                 .disabled(env.isScanning)
                 .keyboardShortcut("r")
