@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// First-launch onboarding window. Up to three steps:
 ///   1. **Language** — pick the UI language. Self-readable: both buttons
@@ -59,6 +60,24 @@ struct OnboardingView: View {
         }
         .padding(20)
         .frame(width: 340)
+        // Force the onboarding window to the front whenever it
+        // appears. Without this it can render behind whatever the user
+        // was last looking at — QuotaMonitor is an `.accessory` app
+        // (LSUIElement=YES), and on the launch path the window is
+        // opened from `.task` with no user gesture, so macOS doesn't
+        // grant frontmost focus on its own. Doing this from
+        // `.onAppear` rather than at the openWindow call site sidesteps
+        // a timing race (the NSWindow doesn't exist yet at the moment
+        // openWindow returns) and covers both entry points — first
+        // launch and the `.onDisappear` re-open below.
+        .onAppear {
+            env.activateForWindow()
+            if let win = NSApp.windows.first(where: {
+                $0.identifier?.rawValue == "onboarding"
+            }) {
+                win.makeKeyAndOrderFront(nil)
+            }
+        }
         // Re-open the window if the user closes it before completing
         // both steps — `onDisappear` fires both on legitimate
         // completion (we dismissed it ourselves, in which case the
