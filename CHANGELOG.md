@@ -7,6 +7,24 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.20] — 2026-05-21
+
+### Fixed
+- **Sparkle no longer offers a spurious "update available" for the
+  installed version.** `build.sh` used to stuff the git short SHA
+  into `CFBundleVersion` for traceability (e.g. `a5c2a1c`), while
+  `tools/release-sparkle.sh` emits appcast items with
+  `sparkle:version` set to the dotted semver (e.g. `0.2.19`).
+  Sparkle compares `CFBundleVersion` against `sparkle:version` to
+  decide "is this newer?" — comparing a hex SHA against a dotted
+  version yielded "different, therefore newer", which meant every
+  launch of v0.2.19 would have prompted users to download v0.2.19
+  again forever. `CFBundleVersion` is now set to the same dotted
+  version as `CFBundleShortVersionString`. Git SHA traceability
+  moves into a new custom Info.plist key `BuildCommit` (read via
+  `PlistBuddy -c 'Print :BuildCommit' ...`), which is invisible to
+  Sparkle's comparator.
+
 ## [0.2.19] — 2026-05-21
 
 ### Fixed
