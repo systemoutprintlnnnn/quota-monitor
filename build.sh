@@ -58,6 +58,23 @@ else
     echo "warning: Resources/AppIcon.icns missing — run tools/make-icon.sh" >&2
 fi
 
+# Binary rpath fixup
+# ------------------
+# SwiftPM's executable target ships with `@loader_path` as its only
+# LC_RPATH, which dyld resolves to Contents/MacOS/ at runtime. That's
+# wrong for our manual bundle layout where frameworks live in
+# Contents/Frameworks/. Without this fixup the app SIGABRTs on launch
+# with `Library not loaded: @rpath/Sparkle.framework/...`. We add the
+# standard `@executable_path/../Frameworks` rpath so dyld can resolve
+# embedded frameworks (Sparkle today, anything else we add later).
+#
+# Must happen BEFORE codesign — install_name_tool rewrites a Mach-O
+# load command, which invalidates the existing signature; codesign
+# below stamps a fresh one over the modified binary.
+echo "==> install_name_tool: add @executable_path/../Frameworks rpath"
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+    "${CONTENTS}/MacOS/${APP_NAME}" 2>/dev/null || true
+
 # Sparkle.framework embedding
 # ----------------------------
 # SwiftPM links the Sparkle dylib at build time but won't place the
