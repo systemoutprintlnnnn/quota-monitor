@@ -7,6 +7,32 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.18] — 2026-05-21
+
+### Changed
+- **Sparkle is now actually functional.** v0.2.17 shipped the
+  framework + UI but with an empty `SUPublicEDKey` placeholder, so
+  Sparkle had no way to verify a downloaded update. This release
+  embeds the real maintainer Ed25519 public key into `Info.plist`,
+  so v0.2.18+ users get end-to-end signed auto-updates: from this
+  version forward, Sparkle can verify any signed appcast item and
+  install it in place. (Going from v0.2.17 → v0.2.18 itself is still
+  manual because v0.2.17's empty key blocks signature verification.)
+- **Signing uses the macOS Keychain instead of a key file on disk.**
+  `tools/release-sparkle.sh` now reads the private key directly from
+  the login Keychain via `sign_update --account quotamonitor`. The
+  key never has to exist as plaintext bytes on disk. The
+  `QM_SPARKLE_KEY` env var (path override) is replaced by
+  `QM_SPARKLE_ACCOUNT` (Keychain account name override). `docs/release.md`
+  is rewritten around the Keychain flow + offline backup / restore.
+
+### Fixed
+- **Appcast pubDate now RFC-822 regardless of system locale.**
+  `tools/release-sparkle.sh` pins `LC_ALL=C` around the `date` call
+  that produces `<pubDate>` so the string is always English month +
+  weekday instead of whatever locale the maintainer happens to be in
+  (RSS spec requires English).
+
 ## [0.2.17] — 2026-05-21
 
 ### Added
