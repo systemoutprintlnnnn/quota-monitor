@@ -7,6 +7,26 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.22] — 2026-05-21
+
+### Changed
+- **Advanced settings sections reordered by relevance.** Updates now
+  sits at the top of the form (it's the single most useful control
+  for end users), and Developer Mode moves down adjacent to Uninstall
+  where the other "rarely needed" knobs cluster. Final order: Updates
+  → Codex CLI → Claude Code → Database → Export → Pricing →
+  Developer Mode → Uninstall.
+
+### Fixed
+- **Sparkle release-notes dialog now renders the actual CHANGELOG
+  entries** instead of a "See CHANGELOG.md for what's new in X.Y.Z"
+  placeholder. `tools/release-sparkle.sh` runs the new
+  `tools/changelog-to-html.py` script to extract the per-version
+  section from CHANGELOG.md, convert its markdown bullet lists +
+  headings + bold + code spans to inline HTML, and embed the result
+  in the appcast item's `<description>` CDATA block. Sparkle's
+  WebView then renders it as a proper "What's new" panel.
+
 ## [0.2.21] — 2026-05-21
 
 ### Added
