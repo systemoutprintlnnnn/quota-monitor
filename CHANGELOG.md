@@ -7,7 +7,33 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.24] — 2026-05-22
+
+### Changed
+- **Menu-bar popover now only shows scan status while a scan is active.**
+  The always-visible "Last scan / files / changed / events" summary is
+  hidden again to keep the compact menu focused on quota state and the
+  primary actions. Manual refresh still shows the live scan progress bar.
+
 ## [0.2.23] — 2026-05-21
+
+### Context
+- **Why this token spike appeared suddenly.** Modern Codex JSONL rows can
+  emit both `token_count.info.last_token_usage` (the current event's
+  usage) and `token_count.info.total_token_usage` (a cumulative session
+  snapshot). In long-lived, replayed, forked, or restarted sessions those
+  cumulative snapshots can repeat or move backwards while still being
+  valid log rows. Older QuotaMonitor builds interpreted those rollback
+  snapshots as fresh full-session deltas, which is what caused the
+  massive local token overcount after a clean database rebuild. The raw
+  `~/.codex/sessions` JSONL files do not need to be edited or deleted for
+  this release; the fix is in how QuotaMonitor imports them.
+- **This matches parser bugs seen in other Codex usage tools.**
+  `codex-pacer` shipped a similar rollback-overcount fix in v1.1.2, and
+  `ccusage` has tracked related duplicate / replayed `token_count`
+  overcount issues. QuotaMonitor's importer now treats Codex snapshots as
+  replay-prone data instead of assuming every cumulative total is a clean
+  monotonic counter.
 
 ### Fixed
 - **Codex token totals no longer explode on modern rollouts.** The

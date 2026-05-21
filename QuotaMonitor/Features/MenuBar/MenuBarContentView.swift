@@ -4,14 +4,13 @@ import AppKit
 // Top-level menu-bar popover. Only chrome + provider-block delegation here;
 // the heavy view code lives in:
 //   - ProviderBlock.swift   (codex / claude blocks + shared chrome)
-//   - ScanStatusView.swift  (last-scan row + errors popover)
+//   - ScanStatusView.swift  (active scan progress)
 //   - QuotaRow.swift / Claude5hRow.swift / CopyButton.swift (atoms)
 
 struct MenuBarContentView: View {
     @Environment(AppEnvironment.self) var env
     @Environment(SettingsStore.self) var settings
     @Environment(\.openWindow) private var openWindow
-    @State var showingErrors = false
 
     var body: some View {
         Group {
