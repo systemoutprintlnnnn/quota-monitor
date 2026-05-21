@@ -7,6 +7,49 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.17] — 2026-05-21
+
+### Added
+- **Auto-update via Sparkle.** QuotaMonitor now ships with the
+  Sparkle framework wired into a signed appcast hosted in this repo.
+  Once the maintainer has generated an Ed25519 key pair (see
+  `docs/release.md`), every subsequent release becomes a one-click
+  in-app upgrade: Sparkle polls the appcast on a 24h schedule,
+  surfaces the standard macOS "Update available" alert when a new
+  version is published, downloads + verifies the Ed25519 signature,
+  quits the running instance, swaps the bundle in `/Applications`,
+  and relaunches. Solves the "user updated by dragging the new .app
+  in but the old process is still running so nothing happens" trap.
+- **Settings → Advanced → Updates.** New section with an "Check for
+  updates automatically" toggle (bound to Sparkle's
+  `SUEnableAutomaticChecks`), a "Check Now" button, and a "Last
+  checked" relative timestamp. Toggle and timestamp stay in sync via
+  KVO → `@Observable` bridging in the new `UpdaterController` wrapper.
+
+### Internal
+- New `Core/Updater/UpdaterController.swift` wraps
+  `SPUStandardUpdaterController` and exposes Sparkle's KVO state
+  (`canCheckForUpdates`, `lastUpdateCheckDate`,
+  `automaticallyChecksForUpdates`) as `@Observable` properties so
+  SwiftUI views can bind directly without importing Combine at each
+  call site.
+- `build.sh` now copies the resolved `Sparkle.xcframework` macOS
+  slice into `.app/Contents/Frameworks/Sparkle.framework/` after
+  every build. SwiftPM links the dylib at build time but won't embed
+  the framework's runtime payload (Autoupdate.app, XPCServices) —
+  doing it by hand is the SwiftPM-as-app workaround. `codesign
+  --deep` then re-signs the framework + its nested signed components.
+- `appcast.xml` lives at the repo root, currently empty.
+  `tools/release-sparkle.sh` signs the per-release DMG with the
+  Ed25519 private key (read from `~/.config/sparkle/` by default;
+  `QM_SPARKLE_KEY` overrides) and prints a ready-to-paste appcast
+  `<item>` block. `.gitignore` patterns defend against accidentally
+  committing the private key.
+- `Resources/Info.plist` gains `SUFeedURL`, `SUPublicEDKey` (empty
+  placeholder; must be filled in before the first signed release),
+  `SUEnableAutomaticChecks` (default on), and
+  `SUScheduledCheckInterval` (24 h).
+
 ## [0.2.16] — 2026-05-20
 
 ### Added
