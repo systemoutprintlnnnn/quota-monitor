@@ -473,10 +473,38 @@ enum L10n {
         t(en: "No usage events recorded for this session",
           zh: "该会话没有记录用量事件")
     }
-    static var chipIn: String { t(en: "in", zh: "入") }
-    static var chipCache: String { t(en: "cache", zh: "缓存") }
-    static var chipOut: String { t(en: "out", zh: "出") }
-    static var chipReason: String { t(en: "reason", zh: "推理") }
+    static var chipIn: String { t(en: "Input", zh: "输入") }
+    // EventRow popover collapses all cache activity into one number
+    // because the read-vs-write distinction is meaningless on Codex
+    // (OpenAI's cache writes are server-managed and never surfaced
+    // through the API) — having a row that's always 0 for half the
+    // events is just noise. For Claude, "Cache" sums cache_read +
+    // cache_creation_5m + cache_creation_1h so it represents the
+    // total token volume that touched cache this turn.
+    static var chipCache: String { t(en: "Cache", zh: "缓存") }
+    // Cached share of total input. Codex: cached_tokens / prompt_tokens.
+    // Claude: cache_read / (uncached_input + cache_read + cache_write).
+    // Cache writes count against the rate because they ARE input
+    // bytes that didn't come from cache this turn.
+    static var chipHitRate: String { t(en: "Hit Rate", zh: "命中率") }
+    static var chipOut: String { t(en: "Output", zh: "输出") }
+    static var chipReason: String { t(en: "Reasoning", zh: "推理") }
+    // EventRow detail popover (`HistoryView` + `SessionDetailView`).
+    // The row now shows just time / model / total / cost; the
+    // popover behind a click on the row breaks the total into its
+    // token buckets and surfaces the model-inferred warning.
+    static var tokenTotalLabel: String { t(en: "Total", zh: "总计") }
+    // EventRow column headers. Used by both `HistoryView` (per-day
+    // session-expand) and `SessionDetailView` (full session timeline)
+    // — shared so the two layouts stay visually identical.
+    static var eventColTime: String { t(en: "Time", zh: "时间") }
+    static var eventColModel: String { t(en: "Model", zh: "模型") }
+    static var eventColTokens: String { t(en: "Tokens", zh: "Tokens") }
+    static var eventColCost: String { t(en: "Cost", zh: "金额") }
+    static var eventInferredCostNote: String {
+        t(en: "Cost is approximate — model was inferred (legacy session with no model metadata).",
+          zh: "计费金额仅供参考 — 模型由旧会话兜底推断（缺少模型元数据）。")
+    }
 
     // MARK: - history
 

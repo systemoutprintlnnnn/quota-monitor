@@ -153,8 +153,9 @@ extension Aggregator {
         let offsetClause = String(format: "%+d seconds",
                                   TimeZone.current.secondsFromGMT())
         return try Row.fetchAll(db, sql: """
-            SELECT id, timestamp, model_id,
+            SELECT id, timestamp, provider, model_id,
                    input_tokens, cached_input_tokens,
+                   cache_creation_5m_tokens, cache_creation_1h_tokens,
                    output_tokens, reasoning_output_tokens,
                    total_tokens, value_usd, model_inferred
             FROM usage_events
@@ -164,9 +165,12 @@ extension Aggregator {
             SessionDetail.Event(
                 id: row["id"] ?? 0,
                 timestamp: row["timestamp"] ?? "",
+                provider: row["provider"] ?? "codex",
                 modelId: row["model_id"] ?? "unknown",
                 inputTokens: row["input_tokens"] ?? 0,
                 cachedInputTokens: row["cached_input_tokens"] ?? 0,
+                cacheCreation5mTokens: row["cache_creation_5m_tokens"] ?? 0,
+                cacheCreation1hTokens: row["cache_creation_1h_tokens"] ?? 0,
                 outputTokens: row["output_tokens"] ?? 0,
                 reasoningOutputTokens: row["reasoning_output_tokens"] ?? 0,
                 totalTokens: row["total_tokens"] ?? 0,

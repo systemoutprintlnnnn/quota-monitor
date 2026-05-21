@@ -309,7 +309,20 @@ private struct ExpandableSessionRow: View {
                 } else if events.isEmpty {
                     Text(L10n.noEvents).font(.caption).foregroundStyle(.secondary)
                 } else {
-                    VStack(spacing: 4) {
+                    // LazyVStack — sessions can have thousands of events
+                    // (xhs-workspace day with 908 events was the report).
+                    // A plain VStack here forces SwiftUI to materialize
+                    // every EventRow + its ~5 token-chip subviews on the
+                    // main thread the instant the user clicks the
+                    // chevron, freezing the app for seconds. The outer
+                    // DayDetailView already wraps the whole sessions
+                    // section in a ScrollView (line 152) + LazyVStack
+                    // (line 235), so this row inherits the same
+                    // virtualization environment and renders only what's
+                    // visible.
+                    LazyVStack(spacing: 4) {
+                        EventRowHeader()
+                        Divider()
                         ForEach(events) { event in
                             EventRow(event: event)
                         }

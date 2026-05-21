@@ -308,9 +308,31 @@ struct SessionDetail: Sendable, Equatable {
     struct Event: Sendable, Identifiable, Equatable {
         let id: Int64
         let timestamp: String
+        /// "codex" | "claude". The two providers store `input_tokens`
+        /// with different semantics — Claude reports the uncached
+        /// remainder (so `input + cacheRead + cacheCreate + output =
+        /// total`), Codex inherits OpenAI's `prompt_tokens` which is
+        /// the FULL prompt including the cached portion (so
+        /// `input + output = total`, with `cached_input_tokens` being
+        /// a subset of `input_tokens`). The EventRow popover uses
+        /// this flag to compute "uncached input" consistently across
+        /// providers without changing what's stored in the DB.
+        let provider: String
         let modelId: String
         let inputTokens: Int64
+        /// Tokens served back from cache on this request. Both Codex
+        /// and Claude expose this; equivalent to "cache read" in the
+        /// Anthropic billing UI.
         let cachedInputTokens: Int64
+        /// Claude-only: prompt tokens written into the per-conversation
+        /// cache on this turn. Codex's cache is server-managed and not
+        /// separately metered, so for Codex rows this is always 0.
+        /// Split across the 5-minute and 1-hour cache TTLs in the
+        /// schema (migration v6); the UI sums them because users care
+        /// about "how much did this turn pay for cache writes" more
+        /// than the TTL split.
+        let cacheCreation5mTokens: Int64
+        let cacheCreation1hTokens: Int64
         let outputTokens: Int64
         let reasoningOutputTokens: Int64
         let totalTokens: Int64
