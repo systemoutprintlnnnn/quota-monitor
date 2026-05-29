@@ -110,10 +110,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     /// frame of the screen hosting it (falling back to the main screen).
     func currentVisibility() -> StatusItemVisibility {
         guard statusItem.isVisible,
-              let win = statusItem.button?.window else { return .clipped }
+              let win = statusItem.button?.window else {
+            Log.discover.info(
+                "visibility=clipped reason=no-window isVisible=\(self.statusItem.isVisible, privacy: .public) hasButton=\(self.statusItem.button != nil, privacy: .public)")
+            return .clipped
+        }
         let screenFrame = (win.screen ?? NSScreen.main)?.frame
-        return MenuBarVisibilityEvaluator.evaluate(
+        let result = MenuBarVisibilityEvaluator.evaluate(
             buttonWindowFrame: win.frame, hostScreenFrame: screenFrame)
+        Log.discover.info(
+            "visibility=\(String(describing: result), privacy: .public) buttonFrame=\(NSStringFromRect(win.frame), privacy: .public) screenFrame=\(screenFrame.map(NSStringFromRect) ?? "nil", privacy: .public)")
+        return result
     }
 
     @objc private func screenParamsChanged() { onScreenChange?() }

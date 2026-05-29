@@ -15,4 +15,5 @@ enum Log {
     static let pricing    = Logger(subsystem: subsystem, category: "pricing")
     static let storage    = Logger(subsystem: subsystem, category: "storage")
     static let ui         = Logger(subsystem: subsystem, category: "ui")
+    static let discover   = Logger(subsystem: subsystem, category: "discover")
 }

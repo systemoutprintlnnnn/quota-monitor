@@ -27,7 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         env.startBackgroundPolling()
 
         // Onboarding window on launch (previously MenuBarLabelView.task).
-        if loc.needsOnboarding || settings.needsProviderOnboarding {
+        let onboardingNeeded = loc.needsOnboarding || settings.needsProviderOnboarding
+        Log.discover.info("launch onboardingNeeded=\(onboardingNeeded, privacy: .public)")
+        if onboardingNeeded {
             WindowRouter.shared.request("onboarding")
             // A brand-new user is mid-wizard; defer the discoverability
             // check until they finish (see notification observer below).
@@ -37,7 +39,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 name: .quotaMonitorOnboardingCompleted,
                 object: nil)
         } else {
+            // This is a pure menu-bar agent: windows open on demand only.
+            // After removing `MenuBarExtra` (which was the non-opening
+            // primary scene), SwiftUI auto-opens the FIRST `Window` scene
+            // at launch — close any such stray window so an existing user
+            // doesn't get the onboarding/dashboard window every launch.
+            closeStrayWindows()
             scheduleDiscoverabilityCheck()
+        }
+    }
+
+    /// Close any SwiftUI `Window` scene that macOS auto-opened at launch.
+    /// Runs on the next runloop tick because the scene's `NSWindow` may
+    /// not exist yet inside `applicationDidFinishLaunching`.
+    private func closeStrayWindows() {
+        DispatchQueue.main.async {
+            let ids: Set<String> = ["onboarding", "dashboard", "settings"]
+            for win in NSApp.windows {
+                guard let id = win.identifier?.rawValue, ids.contains(id) else { continue }
+                Log.discover.info("closing stray auto-opened window id=\(id, privacy: .public)")
+                win.close()
+            }
         }
     }
 
@@ -50,14 +72,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Give the status item a beat to lay out before we read its frame.
     private func scheduleDiscoverabilityCheck() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-            self?.runDiscoverabilityCheck()
+            self?.runDiscoverabilityCheck(attempt: 1)
         }
     }
 
     /// One-time first-run presentation + per-launch clip fallback.
-    private func runDiscoverabilityCheck() {
+    ///
+    /// Guards against a *false* `.clipped` from a status item that simply
+    /// hasn't finished laying out yet (its button window can be nil for a
+    /// beat after launch): a first-pass `.clipped` triggers one re-check
+    /// before we commit to the Dock fallback, so a normal launch doesn't
+    /// spuriously sprout a Dock icon + Dashboard window.
+    private func runDiscoverabilityCheck(attempt: Int) {
         guard let controller = statusItemController else { return }
         let visibility = controller.currentVisibility()
+
+        if visibility == .clipped && attempt < 2 {
+            Log.discover.info("clipped on attempt \(attempt, privacy: .public); re-checking once")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                self?.runDiscoverabilityCheck(attempt: attempt + 1)
+            }
+            return
+        }
 
         // Per-launch: clipped → permanent Dock icon + mark unreachable so
         // closing the last window can't drop the only visible entry.
@@ -67,6 +103,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let action = MenuBarPresentation.decide(
             visibility: visibility,
             hasShownFirstRun: SettingsStore.shared.hasShownFirstRunPresentation)
+        Log.discover.info(
+            "discoverability visibility=\(String(describing: visibility), privacy: .public) action=\(String(describing: action), privacy: .public)")
         switch action {
         case .showPopover:
             controller.showPopover()
