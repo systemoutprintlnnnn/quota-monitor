@@ -169,7 +169,7 @@ final class SettingsStore {
     ///
     /// **Stored as user intent, not as the currently-displayed set.**
     /// Toggling a provider OFF in Tracked tools does NOT trim it from
-    /// here — the menu-bar render path (`MenuBarLabelView.pickRows`)
+    /// here — the menu-bar render path (`MenuBarLabelModel.rows`)
     /// already intersects with `enabledProviders` at draw time, so a
     /// disabled provider is invisible regardless. Keeping the intent
     /// intact means re-enabling tracking restores the icon
@@ -382,7 +382,7 @@ final class SettingsStore {
         // intent the moment a user disabled tracking, defeating the
         // "icon comes back when tracking comes back" guarantee
         // documented on `menuBarIconProviders`. The render path
-        // (`MenuBarLabelView.pickRows`) does the per-draw filter
+        // (`MenuBarLabelModel.rows`) does the per-draw filter
         // against `enabledProviders`, so disabled providers stay
         // invisible regardless of what intent is stored here.
         //

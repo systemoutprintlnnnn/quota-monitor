@@ -114,6 +114,21 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                LabeledContent(L10n.menuBarStyleLabel) {
+                    Picker("", selection: $settings.menuBarLabelStyle) {
+                        ForEach(SettingsStore.MenuBarLabelStyle.allCases) { s in
+                            Text(s.label).tag(s)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220, alignment: .trailing)
+                }
+                Text(L10n.menuBarStyleHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 LabeledContent(L10n.quotaDisplayModeLabel) {
                     Picker("", selection: $settings.quotaDisplayMode) {
                         Text(L10n.quotaDisplayModeUsed)
