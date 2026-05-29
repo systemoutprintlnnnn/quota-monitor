@@ -11,6 +11,14 @@ import Observation
 //     take effect on next launch — we surface that in the UI so users aren't
 //     surprised.
 
+extension Notification.Name {
+    /// Posted once the provider step of onboarding is marked done. The
+    /// AppKit `AppDelegate` listens for this to run the menu-bar
+    /// discoverability check after a fresh user finishes the wizard.
+    static let quotaMonitorOnboardingCompleted =
+        Notification.Name("dev.tjzhou.QuotaMonitor.onboardingCompleted")
+}
+
 @Observable
 @MainActor
 final class SettingsStore {
@@ -122,6 +130,32 @@ final class SettingsStore {
         didSet { defaults.set(developerModeEnabled,
                               forKey: Keys.developerModeEnabled) }
     }
+    /// Whether the one-time first-run discoverability presentation has
+    /// run (auto-open the popover when the icon is visible, or open the
+    /// main window when it is clipped). Set true after the first launch
+    /// past onboarding so we never auto-pop on subsequent launches.
+    var hasShownFirstRunPresentation: Bool {
+        didSet { defaults.set(hasShownFirstRunPresentation,
+                              forKey: Keys.firstRunPresentationShown) }
+    }
+    /// Whether the user dismissed the Dashboard "menu-bar icon may be
+    /// hidden" hint banner shown when the status item is clipped.
+    var firstRunHintDismissed: Bool {
+        didSet { defaults.set(firstRunHintDismissed,
+                              forKey: Keys.firstRunHintDismissed) }
+    }
+    /// How the menu-bar label text is rendered. Both styles are drawn
+    /// natively via `statusItem.button.attributedTitle` (see
+    /// `StatusItemController`); they differ only in font:
+    ///   - `.emphasis` — rounded design, `5h`/`7d` light + percent heavy
+    ///     (the app's original look). Default.
+    ///   - `.native`   — the standard menu-bar font, one weight, system
+    ///     spacing, `labelColor` (matches the OS menu bar).
+    /// Hot-applied: the controller re-renders on change, no relaunch.
+    var menuBarLabelStyle: MenuBarLabelStyle {
+        didSet { defaults.set(menuBarLabelStyle.rawValue,
+                              forKey: Keys.menuBarLabelStyle) }
+    }
     /// Which provider's quota fills the menu-bar icon (one row per
     /// window: 5h + 7d, "X% used"). Multi-select — the user can show
     /// one provider, both side-by-side, or neither (in which case the
@@ -135,7 +169,7 @@ final class SettingsStore {
     ///
     /// **Stored as user intent, not as the currently-displayed set.**
     /// Toggling a provider OFF in Tracked tools does NOT trim it from
-    /// here — the menu-bar render path (`MenuBarLabelView.pickRows`)
+    /// here — the menu-bar render path (`MenuBarLabelModel.rows`)
     /// already intersects with `enabledProviders` at draw time, so a
     /// disabled provider is invisible regardless. Keeping the intent
     /// intact means re-enabling tracking restores the icon
@@ -206,6 +240,20 @@ final class SettingsStore {
         /// engineering convention.
         case english
         var id: String { rawValue }
+    }
+
+    enum MenuBarLabelStyle: String, CaseIterable, Sendable, Identifiable {
+        /// Rounded design, mixed weights — the app's original look.
+        case emphasis
+        /// Standard menu-bar font, single weight, system spacing.
+        case native
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .emphasis: return L10n.menuBarStyleEmphasis
+            case .native:   return L10n.menuBarStyleNative
+            }
+        }
     }
 
     enum QuotaDisplayMode: String, CaseIterable, Sendable, Identifiable {
@@ -309,6 +357,12 @@ final class SettingsStore {
         // billing for anyone who hasn't asked for it).
         self.codexFastModeBilling = defaults.bool(forKey: Keys.codexFastModeBilling)
         self.developerModeEnabled = defaults.bool(forKey: Keys.developerModeEnabled)
+        self.hasShownFirstRunPresentation =
+            defaults.bool(forKey: Keys.firstRunPresentationShown)
+        self.firstRunHintDismissed =
+            defaults.bool(forKey: Keys.firstRunHintDismissed)
+        self.menuBarLabelStyle = (defaults.string(forKey: Keys.menuBarLabelStyle)
+            .flatMap(MenuBarLabelStyle.init(rawValue:))) ?? .emphasis
         // Enabled providers — defaults to the full set so an old build
         // upgrading to this binary keeps tracking both. We sanitise to
         // drop unknown tokens (future renames / deletions) and refuse
@@ -328,7 +382,7 @@ final class SettingsStore {
         // intent the moment a user disabled tracking, defeating the
         // "icon comes back when tracking comes back" guarantee
         // documented on `menuBarIconProviders`. The render path
-        // (`MenuBarLabelView.pickRows`) does the per-draw filter
+        // (`MenuBarLabelModel.rows`) does the per-draw filter
         // against `enabledProviders`, so disabled providers stay
         // invisible regardless of what intent is stored here.
         //
@@ -482,6 +536,8 @@ final class SettingsStore {
         if let appVersion {
             defaults.set(appVersion, forKey: Keys.lastOnboardedVersion)
         }
+        NotificationCenter.default.post(
+            name: .quotaMonitorOnboardingCompleted, object: nil)
     }
 
     /// Replace the enabled set wholesale (e.g. from the onboarding
@@ -552,6 +608,9 @@ final class SettingsStore {
         static let tokenUnitLanguage = "settings.tokenUnitLanguage"
         static let codexFastModeBilling = "settings.codexFastModeBilling"
         static let developerModeEnabled = "settings.developerModeEnabled"
+        static let firstRunPresentationShown = "discoverability.firstRunPresentationShown"
+        static let firstRunHintDismissed = "discoverability.firstRunHintDismissed"
+        static let menuBarLabelStyle = "settings.menuBarLabelStyle"
         // Multi-select store (current). Persisted as `[String]`.
         static let menuBarIconProviders = "settings.menuBarIconProviders"
         // Legacy single-string key (pre-multi-select). Read-only — we

@@ -15,6 +15,14 @@ import GRDB
 @Observable
 @MainActor
 final class AppEnvironment {
+    /// Process-wide shared instance. The AppKit `AppDelegate` (which owns
+    /// the status item) and the SwiftUI `Window` scenes must reference the
+    /// same `@Observable` state. Matches the `SettingsStore.shared` /
+    /// `LocalizationStore.shared` pattern. `UserDefaultsMigration` still
+    /// runs first because `QuotaMonitorApp.init` triggers the first access
+    /// only after calling it.
+    static let shared = AppEnvironment()
+
     let appServer: AppServerClient
 
     var latestRateLimits: RateLimitSnapshot?
@@ -63,6 +71,13 @@ final class AppEnvironment {
     @ObservationIgnored
     var isRefreshingPricing = false
     var lastError: String?
+
+    /// True when the status item has been detected as clipped/hidden and
+    /// we have promoted to a permanent Dock icon as the fallback entry.
+    /// Consulted by `demoteToAccessory()` / `applyDockIconPolicy()` so
+    /// closing the last window does NOT drop the Dock icon while the menu
+    /// bar remains unreachable.
+    var menuBarUnreachable = false
 
     /// Timestamps that drive the auto-refresh-on-popover-open time gates.
     /// The Refresh **button** never honours these — the user clicking
@@ -737,28 +752,22 @@ final class AppEnvironment {
     /// is also `.regular`, so this still fires. With the setting OFF
     /// the whole time we never promoted, the policy is already
     /// `.accessory`, and we no-op.
-    func demoteToAccessory() {
-        guard NSApp.activationPolicy() == .regular else { return }
+    func demoteToAccessory(excludingWindowIDs: Set<String> = []) {
+        guard Self.shouldDemoteToAccessory(
+            currentlyRegular: NSApp.activationPolicy() == .regular,
+            menuBarUnreachable: menuBarUnreachable,
+            hasVisibleAppWindow: Self.hasVisibleAppWindow(
+                excludingWindowIDs: excludingWindowIDs)) else { return }
         DeveloperLog.eventRecord("window.demote_to_accessory", category: "ui")
         NSApp.setActivationPolicy(.accessory)
     }
 
-    /// Re-apply the activation policy based on the current setting.
-    /// Called from the Settings toggle's binding so a flip takes
-    /// effect immediately. Looks at `NSApp.windows` to decide whether
-    /// any app-owned window is currently on screen.
-    ///
-    /// Bidirectional now that Settings is a plain `Window(id:)` scene
-    /// rather than `Settings { }`. The previous implementation only
-    /// promoted because demoting under `Settings { }` made macOS
-    /// deactivate the app, which SwiftUI took as a cue to close the
-    /// very Settings window the user was toggling — yanking the
-    /// window out from under their cursor. Regular `Window` scenes
-    /// survive that deactivation, so demoting on toggle OFF is safe
-    /// and matches the "immediate effect" UX users expect.
-    func applyDockIconPolicy() {
-        let anyWindowOpen = NSApp.windows.contains { win in
+    static func hasVisibleAppWindow(excludingWindowIDs: Set<String> = []) -> Bool {
+        NSApp.windows.contains { win in
             guard win.isVisible else { return false }
+            if let id = win.identifier?.rawValue, excludingWindowIDs.contains(id) {
+                return false
+            }
             // Reject `NSPanel` subclasses — the menu-bar popover
             // host, status-bar window, and any future SwiftUI
             // transient panel are NSPanel-derived, while the
@@ -780,6 +789,23 @@ final class AppEnvironment {
             }
             return true
         }
+    }
+
+    /// Re-apply the activation policy based on the current setting.
+    /// Called from the Settings toggle's binding so a flip takes
+    /// effect immediately. Looks at `NSApp.windows` to decide whether
+    /// any app-owned window is currently on screen.
+    ///
+    /// Bidirectional now that Settings is a plain `Window(id:)` scene
+    /// rather than `Settings { }`. The previous implementation only
+    /// promoted because demoting under `Settings { }` made macOS
+    /// deactivate the app, which SwiftUI took as a cue to close the
+    /// very Settings window the user was toggling — yanking the
+    /// window out from under their cursor. Regular `Window` scenes
+    /// survive that deactivation, so demoting on toggle OFF is safe
+    /// and matches the "immediate effect" UX users expect.
+    func applyDockIconPolicy() {
+        let anyWindowOpen = Self.hasVisibleAppWindow()
         guard anyWindowOpen else { return }
         DeveloperLog.eventRecord(
             "settings.dock_icon_policy.apply",
@@ -791,13 +817,37 @@ final class AppEnvironment {
             ])
         if SettingsStore.shared.showDockIconForWindows {
             NSApp.setActivationPolicy(.regular)
-        } else {
+        } else if !menuBarUnreachable {
             // Toggle OFF with a window still open: drop the Dock icon
             // right now. The Settings window stays put because it's a
             // `Window(id:)` scene, not the auto-closing `Settings { }`
             // scene the old code had to dance around.
+            //
+            // EXCEPT when the menu-bar icon is unreachable — then the
+            // Dock icon is the user's only visible entry and we keep it.
             NSApp.setActivationPolicy(.accessory)
         }
+    }
+
+    // MARK: - dock policy predicate
+
+    /// Pure decision for `demoteToAccessory()`. Only demote when we are
+    /// currently `.regular`, the menu-bar icon is reachable, and no other
+    /// app window still needs the Dock/Cmd-Tab presence.
+    nonisolated static func shouldDemoteToAccessory(
+        currentlyRegular: Bool,
+        menuBarUnreachable: Bool,
+        hasVisibleAppWindow: Bool = false) -> Bool {
+        currentlyRegular && !menuBarUnreachable && !hasVisibleAppWindow
+    }
+
+    nonisolated static func activationPolicyForMenuBarReachability(
+        clipped: Bool,
+        showDockIconForWindows: Bool,
+        hasVisibleAppWindow: Bool) -> NSApplication.ActivationPolicy {
+        if clipped { return .regular }
+        if showDockIconForWindows && hasVisibleAppWindow { return .regular }
+        return .accessory
     }
 
     // MARK: - timeout helper

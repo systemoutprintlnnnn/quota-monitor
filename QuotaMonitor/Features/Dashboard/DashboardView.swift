@@ -15,10 +15,14 @@ import SwiftUI
 struct DashboardView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if env.menuBarUnreachable && !settings.firstRunHintDismissed {
+                    hiddenIconHint
+                }
                 if let snapshot = env.dashboardSnapshot {
                     statline
                     ForecastSection(
@@ -119,6 +123,40 @@ struct DashboardView: View {
             }
             Spacer()
         }
+    }
+
+    // MARK: - hidden-icon hint
+
+    /// Shown when the menu-bar status item was detected as clipped/hidden
+    /// and we promoted to a permanent Dock icon. Dismissible; the choice
+    /// persists via `settings.firstRunHintDismissed`.
+    @ViewBuilder
+    private var hiddenIconHint: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "menubar.rectangle")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.menuBarHiddenHintTitle)
+                    .font(.headline)
+                Text(L10n.menuBarHiddenHintBody)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 6) {
+                Button(L10n.menuBarHelpShowMeHow) {
+                    env.activateForWindow()
+                    openWindow(id: "menubar-help")
+                }
+                .buttonStyle(.borderedProminent)
+                Button(L10n.menuBarHiddenHintDismiss) {
+                    settings.firstRunHintDismissed = true
+                }
+            }
+        }
+        .padding(12)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
     }
 
     // MARK: - empty state

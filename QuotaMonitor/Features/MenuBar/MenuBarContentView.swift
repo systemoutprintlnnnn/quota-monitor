@@ -10,7 +10,11 @@ import AppKit
 struct MenuBarContentView: View {
     @Environment(AppEnvironment.self) var env
     @Environment(SettingsStore.self) var settings
-    @Environment(\.openWindow) private var openWindow
+    private let windowActions: @MainActor (AppEnvironment) -> MenuBarWindowActions
+
+    init(windowActions: @escaping @MainActor (AppEnvironment) -> MenuBarWindowActions = MenuBarWindowActions.live) {
+        self.windowActions = windowActions
+    }
 
     var body: some View {
         Group {
@@ -37,28 +41,13 @@ struct MenuBarContentView: View {
         // Text views, not text inside Button labels. Lets the user copy
         // a USD figure or a token count without screenshotting.
         .textSelection(.enabled)
-        // Refresh whenever the popover opens so the user always sees
-        // current stats without clicking Refresh. `.onAppear` fires every
-        // time the popover is shown (MenuBarExtra `.window` style re-
-        // mounts the content view on each open). `.onChange(scenePhase)`
-        // used to live here but `scenePhase` is app-wide and doesn't
-        // change when the menu-bar popover toggles — that's why this
-        // hook silently did nothing unless the user had bounced to a
-        // different app and back.
-        //
-        // Routes through the same `refreshAll` as the Refresh button —
-        // the ONLY difference is `throttle: true`, which makes each step
-        // honour a minInterval so popping the popover open three times
-        // in a row doesn't trigger three back-to-back JSONL scans +
-        // three app-server `/rateLimits/read` calls.
-        .onAppear {
-            // Onboarding gate — skip the auto-refresh fan-out entirely
-            // while the wizard is up. AppEnvironment's per-method
-            // guards would catch this too, but bailing at the source
-            // also avoids touching `SettingsStore.snapshot()` for a no-op.
-            guard !settings.needsProviderOnboarding else { return }
-            env.refreshAll(throttle: true, trigger: "popover")
-        }
+        // Refresh-on-open is now owned by `StatusItemController`'s
+        // `popoverWillShow` delegate callback — the authoritative "popover
+        // opened" hook now that we drive an AppKit `NSPopover` rather than
+        // a SwiftUI `MenuBarExtra` (whose `.window` style re-mounted this
+        // view on each open, which this `.onAppear` used to rely on). The
+        // controller applies the same `refreshAll(throttle: true)` and the
+        // same onboarding gate.
     }
 
     @ViewBuilder
@@ -130,9 +119,7 @@ struct MenuBarContentView: View {
             }
 
             Button {
-                env.activateForWindow()
-                openWindow(id: "dashboard")
-                env.refreshDashboard()
+                windowActions(env).openDashboard()
             } label: {
                 Label(L10n.openDashboard, systemImage: "chart.bar.xaxis")
                     .frame(maxWidth: .infinity)
@@ -147,8 +134,7 @@ struct MenuBarContentView: View {
             // explicitly don't have. activateForWindow() runs first so
             // the Settings window comes forward over the menu popover.
             Button {
-                env.activateForWindow()
-                openWindow(id: "settings")
+                windowActions(env).openSettings()
             } label: {
                 Label(L10n.settingsMenuItem, systemImage: "gearshape")
                     .frame(maxWidth: .infinity)
@@ -160,7 +146,7 @@ struct MenuBarContentView: View {
 
     /// Placeholder content shown while `settings.needsProviderOnboarding`
     /// is true. The onboarding Window is auto-opened by
-    /// `MenuBarLabelView.task`, but it can be dismissed via the title
+    /// `AppDelegate`, but it can be dismissed via the title
     /// bar close button — when that happens we still re-open it from
     /// `onDisappear`, but the user might land here in the brief gap.
     /// "Open setup" is the explicit escape hatch.
@@ -178,8 +164,7 @@ struct MenuBarContentView: View {
             }
             .padding(.vertical, 4)
             Button {
-                env.activateForWindow()
-                openWindow(id: "onboarding")
+                windowActions(env).openOnboarding()
             } label: {
                 Label(L10n.openSetup, systemImage: "checklist")
                     .frame(maxWidth: .infinity)
