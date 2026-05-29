@@ -18,6 +18,11 @@ struct MenuBarHelpView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
+    private let lifecycleActions: @MainActor (AppEnvironment) -> MenuBarHelpLifecycleActions
+
+    init(lifecycleActions: @escaping @MainActor (AppEnvironment) -> MenuBarHelpLifecycleActions = MenuBarHelpLifecycleActions.live) {
+        self.lifecycleActions = lifecycleActions
+    }
 
     /// Becomes true after the first "Re-check" so the status line only
     /// appears once the user has actually tried.
@@ -90,6 +95,9 @@ struct MenuBarHelpView: View {
             }) {
                 win.makeKeyAndOrderFront(nil)
             }
+        }
+        .onDisappear {
+            lifecycleActions(env).windowDidDisappear()
         }
     }
 
