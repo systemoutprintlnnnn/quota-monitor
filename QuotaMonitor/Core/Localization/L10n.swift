@@ -52,6 +52,20 @@ enum L10n {
     static var claudeCode: String { "Claude Code" }      // proper noun
     static var claude: String { "Claude" }               // proper noun
 
+    // MARK: - menu-bar discoverability hint
+
+    static var menuBarHiddenHintTitle: String {
+        t(en: "Menu-bar icon may be hidden",
+          zh: "菜单栏图标可能被隐藏")
+    }
+    static var menuBarHiddenHintBody: String {
+        t(en: "QuotaMonitor's menu-bar icon doesn't fit on your menu bar — it may be behind the notch or hidden by a menu-bar manager (e.g. Bartender, Ice). A Dock icon is shown so you can always reach the app.",
+          zh: "QuotaMonitor 的菜单栏图标在你的菜单栏放不下——可能被刘海挡住，或被菜单栏整理工具（如 Bartender、Ice）隐藏了。已为你显示 Dock 图标，便于随时打开应用。")
+    }
+    static var menuBarHiddenHintDismiss: String {
+        t(en: "Got it", zh: "知道了")
+    }
+
     static var quotaCardTitle5h: String { t(en: "5-hour", zh: "5 小时") }
     static var quotaCardTitle7d: String { t(en: "7-day", zh: "7 天") }
     static var quotaCardTitle7dOpus: String { t(en: "7-day · Opus", zh: "7 天 · Opus") }
