@@ -122,6 +122,20 @@ final class SettingsStore {
         didSet { defaults.set(developerModeEnabled,
                               forKey: Keys.developerModeEnabled) }
     }
+    /// Whether the one-time first-run discoverability presentation has
+    /// run (auto-open the popover when the icon is visible, or open the
+    /// main window when it is clipped). Set true after the first launch
+    /// past onboarding so we never auto-pop on subsequent launches.
+    var hasShownFirstRunPresentation: Bool {
+        didSet { defaults.set(hasShownFirstRunPresentation,
+                              forKey: Keys.firstRunPresentationShown) }
+    }
+    /// Whether the user dismissed the Dashboard "menu-bar icon may be
+    /// hidden" hint banner shown when the status item is clipped.
+    var firstRunHintDismissed: Bool {
+        didSet { defaults.set(firstRunHintDismissed,
+                              forKey: Keys.firstRunHintDismissed) }
+    }
     /// Which provider's quota fills the menu-bar icon (one row per
     /// window: 5h + 7d, "X% used"). Multi-select — the user can show
     /// one provider, both side-by-side, or neither (in which case the
@@ -309,6 +323,10 @@ final class SettingsStore {
         // billing for anyone who hasn't asked for it).
         self.codexFastModeBilling = defaults.bool(forKey: Keys.codexFastModeBilling)
         self.developerModeEnabled = defaults.bool(forKey: Keys.developerModeEnabled)
+        self.hasShownFirstRunPresentation =
+            defaults.bool(forKey: Keys.firstRunPresentationShown)
+        self.firstRunHintDismissed =
+            defaults.bool(forKey: Keys.firstRunHintDismissed)
         // Enabled providers — defaults to the full set so an old build
         // upgrading to this binary keeps tracking both. We sanitise to
         // drop unknown tokens (future renames / deletions) and refuse
@@ -552,6 +570,8 @@ final class SettingsStore {
         static let tokenUnitLanguage = "settings.tokenUnitLanguage"
         static let codexFastModeBilling = "settings.codexFastModeBilling"
         static let developerModeEnabled = "settings.developerModeEnabled"
+        static let firstRunPresentationShown = "discoverability.firstRunPresentationShown"
+        static let firstRunHintDismissed = "discoverability.firstRunHintDismissed"
         // Multi-select store (current). Persisted as `[String]`.
         static let menuBarIconProviders = "settings.menuBarIconProviders"
         // Legacy single-string key (pre-multi-select). Read-only — we
