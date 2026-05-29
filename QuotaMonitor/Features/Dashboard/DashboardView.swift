@@ -15,6 +15,7 @@ import SwiftUI
 struct DashboardView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
@@ -143,8 +144,15 @@ struct DashboardView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button(L10n.menuBarHiddenHintDismiss) {
-                settings.firstRunHintDismissed = true
+            VStack(alignment: .trailing, spacing: 6) {
+                Button(L10n.menuBarHelpShowMeHow) {
+                    env.activateForWindow()
+                    openWindow(id: "menubar-help")
+                }
+                .buttonStyle(.borderedProminent)
+                Button(L10n.menuBarHiddenHintDismiss) {
+                    settings.firstRunHintDismissed = true
+                }
             }
         }
         .padding(12)

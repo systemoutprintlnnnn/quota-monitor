@@ -75,6 +75,65 @@ enum L10n {
     static var menuBarHiddenHintDismiss: String {
         t(en: "Got it", zh: "知道了")
     }
+    /// Banner primary action — opens the recovery guide window.
+    static var menuBarHelpShowMeHow: String {
+        t(en: "Show me how", zh: "教我找回图标")
+    }
+
+    // MARK: - menu-bar icon recovery guide
+
+    static var menuBarHelpWindowTitle: String {
+        t(en: "Find the menu-bar icon", zh: "找回菜单栏图标")
+    }
+    static var menuBarHelpHeadline: String {
+        t(en: "Can't find QuotaMonitor's menu-bar icon?",
+          zh: "找不到 QuotaMonitor 的菜单栏图标?")
+    }
+    static var menuBarHelpIntro: String {
+        t(en: "Your menu bar is too full to show it — it may be behind the notch or hidden by a menu-bar manager.",
+          zh: "你的菜单栏放不下它——可能被刘海挡住，或被菜单栏整理工具隐藏了。")
+    }
+    static var menuBarHelpStepsTitle: String {
+        t(en: "How to make it reappear:", zh: "怎么让它重新出现：")
+    }
+    static var menuBarHelpStep1: String {
+        t(en: "Hold ⌘ and drag menu-bar icons to rearrange them; drag one off the bar to remove it and free up space.",
+          zh: "按住 ⌘ 拖动菜单栏图标可重新排序；把图标拖离菜单栏松手即可移除，腾出空间。")
+    }
+    static var menuBarHelpStep2: String {
+        t(en: "Quit menu-bar apps you don't need.",
+          zh: "退出一些不常用的常驻菜单栏 App。")
+    }
+    static var menuBarHelpStep3: String {
+        t(en: "Using Bartender, Ice, or a similar tool? Set QuotaMonitor to \"always show\" in its settings.",
+          zh: "用了 Bartender、Ice 等工具？在其设置里把 QuotaMonitor 设为“始终显示”。")
+    }
+    static var menuBarHelpStep4: String {
+        t(en: "Notched Mac: space left of the notch is limited — remove a few items and the icon appears automatically.",
+          zh: "刘海 Mac：刘海左侧空间有限，移走几个图标后图标会自动出现。")
+    }
+    static var menuBarHelpDockFooter: String {
+        t(en: "You can always open QuotaMonitor from its Dock icon.",
+          zh: "你随时可以从 Dock 图标打开 QuotaMonitor。")
+    }
+    static var menuBarHelpRecheck: String {
+        t(en: "Re-check", zh: "重新检测")
+    }
+    static var menuBarHelpStillClipped: String {
+        t(en: "Still no room — free up a little more and try again.",
+          zh: "还是放不下——再腾一点空间试试。")
+    }
+    static var menuBarHelpRecovered: String {
+        t(en: "✅ The icon is back in your menu bar.",
+          zh: "✅ 图标已经回到菜单栏了。")
+    }
+    /// Settings → General row that opens the guide any time.
+    static var menuBarHelpSettingsRow: String {
+        t(en: "Can't find the menu-bar icon?", zh: "菜单栏图标找不到？")
+    }
+    static var menuBarHelpSettingsOpen: String {
+        t(en: "Open guide", zh: "打开帮助")
+    }
 
     static var quotaCardTitle5h: String { t(en: "5-hour", zh: "5 小时") }
     static var quotaCardTitle7d: String { t(en: "7-day", zh: "7 天") }

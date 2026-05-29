@@ -20,6 +20,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         self.statusItemController = controller
 
+        // The recovery guide's "Re-check" button asks us to re-evaluate.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(recheckRequested),
+            name: .quotaMonitorRecheckVisibility,
+            object: nil)
+
         // Launch fan-out previously carried by the MenuBarExtra `.task`.
         env.refreshAll(throttle: false, trigger: "launch")
         env.refreshDashboard()
@@ -54,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// not exist yet inside `applicationDidFinishLaunching`.
     private func closeStrayWindows() {
         DispatchQueue.main.async {
-            let ids: Set<String> = ["onboarding", "dashboard", "settings"]
+            let ids: Set<String> = ["onboarding", "dashboard", "settings", "menubar-help"]
             for win in NSApp.windows {
                 guard let id = win.identifier?.rawValue, ids.contains(id) else { continue }
                 Log.discover.info("closing stray auto-opened window id=\(id, privacy: .public)")
@@ -110,8 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.showPopover()
         case .openFallbackWindow:
             AppEnvironment.shared.activateForWindow()
-            WindowRouter.shared.request("dashboard")
-            AppEnvironment.shared.refreshDashboard()
+            WindowRouter.shared.request("menubar-help")
         case .none:
             break
         }
@@ -125,6 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func enforceClipFallback() {
         guard let controller = statusItemController else { return }
         applyUnreachableState(clipped: controller.currentVisibility() == .clipped)
+    }
+
+    /// "Re-check" in the recovery guide: re-evaluate visibility (which
+    /// updates `env.menuBarUnreachable` for the guide to reflect) and, if
+    /// the icon is now visible, pop the popover to point the user at it.
+    @objc private func recheckRequested() {
+        guard let controller = statusItemController else { return }
+        let visibility = controller.currentVisibility()
+        applyUnreachableState(clipped: visibility == .clipped)
+        if visibility == .visible {
+            controller.showPopover()
+        }
     }
 
     private func applyUnreachableState(clipped: Bool) {

@@ -13,6 +13,7 @@ struct GeneralSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(AppEnvironment.self) private var env
     @Environment(LocalizationStore.self) private var loc
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var settings = settings
@@ -170,6 +171,16 @@ struct GeneralSettingsTab: View {
                      : L10n.menuBarIconProviderHelpSingle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                // Always-available entry to the recovery guide — not only
+                // when the icon is clipped, so a user who dismissed the
+                // auto-popped window can reopen it here.
+                LabeledContent(L10n.menuBarHelpSettingsRow) {
+                    Button(L10n.menuBarHelpSettingsOpen) {
+                        env.activateForWindow()
+                        openWindow(id: "menubar-help")
+                    }
+                }
             }
 
             // Tracked tools — let users hide a CLI they don't have

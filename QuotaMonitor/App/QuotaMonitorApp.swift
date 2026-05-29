@@ -109,6 +109,21 @@ struct QuotaMonitorApp: App {
         // `quotamonitor://dashboard`.
         .handlesExternalEvents(matching: ["dashboard"])
 
+        // Recovery guide shown when the menu-bar icon is clipped. Opened
+        // from AppKit via `quotamonitor://menubar-help`, and from the
+        // Dashboard banner / Settings any time.
+        Window(L10n.menuBarHelpWindowTitle, id: "menubar-help") {
+            MenuBarHelpView()
+                .environment(environment)
+                .environment(localization)
+                .environment(settings)
+                .environment(\.locale, localization.locale)
+                .id(localization.tickForceRedraw)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .handlesExternalEvents(matching: ["menubar-help"])
+
         // Settings is a regular `Window` scene rather than SwiftUI's
         // special-purpose `Settings { }` scene. The latter closes
         // itself whenever the app deactivates (which is what
