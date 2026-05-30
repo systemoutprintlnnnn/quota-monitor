@@ -168,8 +168,6 @@ struct AggregatorActivityTests {
         #expect(activity.lifetimeTokens == 9000)
         #expect(activity.peakDayTokens == 7000,
                 "busiest local day sums both same-day events")
-        #expect(abs(activity.longestTaskSeconds - 12600) < 1.0,
-                "longest session wall-clock = 3h30m")
     }
 
     @Test("fetchActivity: current streak counts consecutive days up to today")

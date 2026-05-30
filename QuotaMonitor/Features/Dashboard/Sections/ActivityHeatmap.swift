@@ -4,9 +4,8 @@ import SwiftUI
 /// itself never changes — one cell per local-calendar day — only the value
 /// that drives the color does:
 ///   - `.daily`      each day's own tokens (the classic contribution graph)
-///   - `.weekly`     each day colored by its whole week's total (columns read
-///                   as uniform bands)
-///   - `.cumulative` running total to date (the map darkens left → right)
+///   - `.weekly`     daily tokens for fill, week total encoded as border
+///   - `.cumulative` running total to date (logarithmic thresholds)
 enum HeatmapMode: String, CaseIterable, Identifiable, Hashable {
     case daily
     case weekly
@@ -48,20 +47,58 @@ struct ActivityHeatmap: View {
     let mode: HeatmapMode
     let tokenLocale: Locale
 
-    private let cell: CGFloat = 11
+    @State private var hoveredCell: (col: Int, row: Int, cell: HeatmapModel.Cell)?
+
+    private let cell: CGFloat = 13
     private let gap: CGFloat = 3
 
     var body: some View {
         let model = HeatmapModel(daily: daily, mode: mode, calendar: .current)
         VStack(alignment: .leading, spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 4) {
-                    monthLabels(model)
-                    grid(model)
+                ZStack(alignment: .topLeading) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        monthLabels(model)
+                        grid(model)
+                    }
+                    // Custom tooltip overlay — inside ScrollView so it
+                    // scrolls with the grid instead of floating at a
+                    // fixed viewport position.
+                    if let (col, row, cell) = hoveredCell, let point = cell.point {
+                        tooltipOverlay(for: point, col: col, row: row)
+                    }
                 }
             }
             legend
         }
+    }
+
+    // MARK: - tooltip overlay
+
+    private func tooltipOverlay(for point: DailyPoint, col: Int, row: Int) -> some View {
+        let date = point.date.formatted(.dateTime.year().month(.abbreviated).day())
+        let tokens = point.tokens.formatted(
+            .number.notation(.compactName).locale(tokenLocale))
+
+        // Position tooltip above the cell
+        let xOffset = CGFloat(col) * (cell + gap) + cell / 2
+        let yOffset = 16 + CGFloat(row) * (cell + gap) - cell / 2 - 8
+
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(date)
+                .font(.caption.weight(.medium))
+            Text(tokens + " tokens")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+        )
+        .position(x: xOffset, y: yOffset)
     }
 
     // MARK: - grid
@@ -71,7 +108,7 @@ struct ActivityHeatmap: View {
             ForEach(model.weeks.indices, id: \.self) { col in
                 VStack(spacing: gap) {
                     ForEach(model.weeks[col].indices, id: \.self) { row in
-                        cellView(model.weeks[col][row])
+                        cellView(model.weeks[col][row], col: col, row: row)
                     }
                 }
             }
@@ -79,19 +116,22 @@ struct ActivityHeatmap: View {
     }
 
     @ViewBuilder
-    private func cellView(_ entry: HeatmapModel.Cell) -> some View {
+    private func cellView(_ entry: HeatmapModel.Cell, col: Int, row: Int) -> some View {
+        let border = entry.weekLevel.flatMap { $0 > 0 ? HeatmapPalette.color(level: $0) : nil }
         RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(HeatmapPalette.color(level: entry.level))
+            .stroke(border ?? .clear, lineWidth: border != nil ? 1.5 : 0)
             .frame(width: cell, height: cell)
-            .help(tooltip(entry))
-    }
-
-    private func tooltip(_ entry: HeatmapModel.Cell) -> String {
-        guard let point = entry.point else { return "" }
-        let date = point.date.formatted(.dateTime.year().month(.abbreviated).day())
-        let tokens = point.tokens.formatted(
-            .number.notation(.compactName).locale(tokenLocale))
-        return L10n.activityHeatmapCell(date: date, tokens: tokens)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering && entry.point != nil {
+                    hoveredCell = (col, row, entry)
+                } else if !hovering {
+                    if hoveredCell?.col == col && hoveredCell?.row == row {
+                        hoveredCell = nil
+                    }
+                }
+            }
     }
 
     // MARK: - month labels
@@ -136,6 +176,9 @@ struct HeatmapModel {
     struct Cell {
         let point: DailyPoint?   // nil = calendar padding outside the range
         let level: Int           // 0…4
+        /// In `.weekly` mode, the intensity level for the whole week's total.
+        /// Used as a border/stroke color so the fill still shows daily variation.
+        let weekLevel: Int?      // nil in non-weekly modes or for padding
     }
 
     /// Each inner array is one week (7 entries, top → bottom by weekday).
@@ -155,6 +198,22 @@ struct HeatmapModel {
             return min(lvl, 4)
         }
 
+        // 1b. In weekly mode, fill color shows daily tokens (not weekly total),
+        //     and week total is encoded as a border via `weekLevel`.
+        let dailyValues: [Double]
+        let weekLevels: [Double?]
+        let dailyThresholds: [Double]
+        if mode == .weekly {
+            dailyValues = daily.map { Double($0.tokens) }
+            let weeklyAgg = HeatmapModel.values(daily: daily, mode: .weekly, calendar: calendar)
+            weekLevels = weeklyAgg
+            dailyThresholds = HeatmapModel.thresholds(values: dailyValues, mode: .daily)
+        } else {
+            dailyValues = []
+            weekLevels = []
+            dailyThresholds = []
+        }
+
         // 2. Pad the leading days so column 0 starts on the calendar's
         //    first weekday, then chunk into 7-day columns.
         guard let first = daily.first?.date else {
@@ -165,13 +224,29 @@ struct HeatmapModel {
         let weekdayOfFirst = calendar.component(.weekday, from: first)
         let lead = (weekdayOfFirst - calendar.firstWeekday + 7) % 7
 
+        func cellLevel(_ v: Double, thresholds: [Double]) -> Int {
+            guard v > 0 else { return 0 }
+            var lvl = 1
+            for t in thresholds where v > t { lvl += 1 }
+            return min(lvl, 4)
+        }
+
         var cells: [Cell] = []
         cells.reserveCapacity(daily.count + lead + 7)
-        for _ in 0..<lead { cells.append(Cell(point: nil, level: 0)) }
+        for _ in 0..<lead { cells.append(Cell(point: nil, level: 0, weekLevel: nil)) }
         for (i, point) in daily.enumerated() {
-            cells.append(Cell(point: point, level: level(values[i])))
+            let fillLevel: Int
+            let wl: Int?
+            if mode == .weekly {
+                fillLevel = cellLevel(dailyValues[i], thresholds: dailyThresholds)
+                wl = weekLevels[i].map { cellLevel($0, thresholds: thresholds) }
+            } else {
+                fillLevel = level(values[i])
+                wl = nil
+            }
+            cells.append(Cell(point: point, level: fillLevel, weekLevel: wl))
         }
-        while cells.count % 7 != 0 { cells.append(Cell(point: nil, level: 0)) }
+        while cells.count % 7 != 0 { cells.append(Cell(point: nil, level: 0, weekLevel: nil)) }
 
         var builtWeeks: [[Cell]] = []
         var c = 0
@@ -230,12 +305,17 @@ struct HeatmapModel {
 
     /// Three cut points splitting levels 1/2, 2/3, 3/4. Quartiles of the
     /// non-zero values for daily/weekly (so one runaway day doesn't wash
-    /// everything else pale); even quarters of the max for cumulative
-    /// (which grows monotonically, so quartiles would bunch at the end).
+    /// everything else pale); logarithmic scale for cumulative (which
+    /// grows monotonically, so linear thresholds would bunch at the end).
     static func thresholds(values: [Double], mode: HeatmapMode) -> [Double] {
         if mode == .cumulative {
-            let maxValue = values.max() ?? 0
-            return [maxValue * 0.25, maxValue * 0.5, maxValue * 0.75]
+            // Logarithmic thresholds so early low-cumulative days aren't
+            // all washed to the same pale level. Map through log, pick
+            // even fractions on the log scale, then exp back.
+            let logValues = values.map { log($0 + 1) }
+            let logMax = logValues.max() ?? 0
+            guard logMax > 0 else { return [0, 0, 0] }
+            return [exp(logMax * 0.25) - 1, exp(logMax * 0.5) - 1, exp(logMax * 0.75) - 1]
         }
         let nonzero = values.filter { $0 > 0 }.sorted()
         guard !nonzero.isEmpty else { return [0, 0, 0] }

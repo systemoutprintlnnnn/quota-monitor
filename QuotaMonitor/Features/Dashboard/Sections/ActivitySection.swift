@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Activity card: the lifetime / engagement profile a CodeX-style usage
-/// screen shows. A five-up stat strip (lifetime tokens, peak day, longest
-/// task, current + longest streak) over a contribution-style heatmap with
-/// a Daily / Weekly / Cumulative toggle.
+/// screen shows. A four-up stat strip (lifetime tokens, peak day, current
+/// + longest streak) over a contribution-style heatmap with a Daily /
+/// Weekly / Cumulative toggle.
 ///
 /// Reads `DashboardSnapshot.activity`, which `loadDashboard` already scopes
 /// to the active provider filter — so every number here follows the
@@ -57,10 +57,6 @@ struct ActivitySection: View {
                 })
             cellDivider
             statCell(
-                value: durationText(activity.longestTaskSeconds),
-                label: L10n.activityLongestTask)
-            cellDivider
-            statCell(
                 value: L10n.activityStreakDays(activity.currentStreakDays),
                 label: L10n.activityCurrentStreak)
             cellDivider
@@ -95,7 +91,7 @@ struct ActivitySection: View {
                 .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
-        .help(help ?? "")
+        .modifier(StatCellHelp(help))
     }
 
     // MARK: - heatmap
@@ -132,12 +128,18 @@ struct ActivitySection: View {
                 .precision(.fractionLength(0...1))
                 .locale(locale))
     }
+}
 
-    private func durationText(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let secs = total % 60
-        return L10n.activityDuration(hours: hours, minutes: minutes, seconds: secs)
+/// Conditional `.help()` modifier — avoids passing an empty string
+/// (which shows an empty tooltip) or force-unwrapping an Optional.
+private struct StatCellHelp: ViewModifier {
+    let text: String?
+    init(_ text: String?) { self.text = text }
+    @ViewBuilder func body(content: Content) -> some View {
+        if let text {
+            content.help(text)
+        } else {
+            content
+        }
     }
 }

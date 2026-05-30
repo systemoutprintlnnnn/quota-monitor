@@ -3,9 +3,8 @@ import GRDB
 
 // "Usage activity" stats for the Dashboard's ActivitySection — the
 // lifetime / engagement numbers a CodeX-style profile shows: lifetime
-// tokens, the busiest single day, the longest single task, and active-day
-// streaks, plus a ~1-year daily token series for the contribution-style
-// heatmap.
+// tokens, the busiest single day, active-day streaks, plus a ~1-year
+// daily token series for the contribution-style heatmap.
 //
 // Everything is derived from the existing `usage_events` table — no schema
 // change, no new ingestion. Day bucketing is done client-side via
@@ -21,9 +20,6 @@ struct ActivitySnapshot: Sendable, Equatable {
     /// Busiest single local-calendar day, by total tokens.
     let peakDayTokens: Int64
     let peakDay: Date?
-    /// Longest single session's wall-clock span (last event − first event),
-    /// in seconds.
-    let longestTaskSeconds: Double
     /// Consecutive active days ending today (or yesterday, so a day you
     /// simply haven't started yet doesn't read as a broken streak).
     let currentStreakDays: Int
@@ -36,18 +32,17 @@ struct ActivitySnapshot: Sendable, Equatable {
 
     static let empty = ActivitySnapshot(
         lifetimeTokens: 0, peakDayTokens: 0, peakDay: nil,
-        longestTaskSeconds: 0, currentStreakDays: 0,
-        longestStreakDays: 0, daily: [])
+        currentStreakDays: 0, longestStreakDays: 0, daily: [])
 
     var hasData: Bool { lifetimeTokens > 0 }
 }
 
 extension Aggregator {
 
-    /// Build the full activity profile for one provider filter. Three cheap
-    /// queries: an all-time per-day token rollup (peak + streaks + lifetime),
-    /// a per-session span scan (longest task), and the trailing daily series
-    /// (heatmap). All bucket by local calendar day.
+    /// Build the full activity profile for one provider filter. Two cheap
+    /// queries: an all-time per-day token rollup (peak + streaks + lifetime)
+    /// and the trailing daily series (heatmap). All bucket by local calendar
+    /// day.
     static func fetchActivity(
         db: Database,
         provider: ProviderFilter = .all,
@@ -91,42 +86,15 @@ extension Aggregator {
 
         let (current, longest) = streaks(
             activeDays: activeDays, now: now, calendar: calendar)
-        let longestTask = try fetchLongestTaskSeconds(db: db, provider: provider)
         let daily = try fetchDaily(db: db, days: heatmapDays, provider: provider)
 
         return ActivitySnapshot(
             lifetimeTokens: lifetime,
             peakDayTokens: peakTokens,
             peakDay: peakDay,
-            longestTaskSeconds: longestTask,
             currentStreakDays: current,
             longestStreakDays: longest,
             daily: daily)
-    }
-
-    /// Longest single session wall-clock = `MAX(timestamp) − MIN(timestamp)`
-    /// across that session's events. Parsed client-side via `parseTimestamp`
-    /// so we don't depend on SQLite's `julianday()` coping with the
-    /// trailing-`Z` ISO8601 shape our importer writes.
-    static func fetchLongestTaskSeconds(
-        db: Database, provider: ProviderFilter = .all
-    ) throws -> Double {
-        let rows = try Row.fetchAll(db, sql: """
-            SELECT MIN(timestamp) AS first_at, MAX(timestamp) AS last_at
-            FROM usage_events
-            \(provider.whereClause(table: "usage_events"))
-            GROUP BY session_id
-            """)
-        var maxSpan: Double = 0
-        for row in rows {
-            guard let first: String = row["first_at"],
-                  let last: String = row["last_at"],
-                  let firstDate = parseTimestamp(first),
-                  let lastDate = parseTimestamp(last) else { continue }
-            let span = lastDate.timeIntervalSince(firstDate)
-            if span > maxSpan { maxSpan = span }
-        }
-        return maxSpan
     }
 
     /// Pure streak math over a set of active local-calendar days. Returns

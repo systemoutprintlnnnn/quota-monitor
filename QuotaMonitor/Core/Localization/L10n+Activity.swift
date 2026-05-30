@@ -21,7 +21,6 @@ extension L10n {
     static var activitySectionTitle: String { sa("Activity", "使用画像") }
     static var activityLifetimeTokens: String { sa("Lifetime tokens", "累计 tokens") }
     static var activityPeakTokens: String { sa("Peak tokens", "单日峰值") }
-    static var activityLongestTask: String { sa("Longest task", "最长任务") }
     static var activityCurrentStreak: String { sa("Current streak", "当前连续") }
     static var activityLongestStreak: String { sa("Longest streak", "最长连续") }
     static var activityNoData: String {
@@ -42,14 +41,6 @@ extension L10n {
     /// Streak / day-count label, e.g. "38 days" / "38 天".
     static func activityStreakDays(_ count: Int) -> String {
         sa("\(count) days", "\(count) 天")
-    }
-
-    /// Duration for the "Longest task" stat. Hours+minutes at hour scale
-    /// (matches CodeX's "14h 47m"), minutes+seconds below an hour.
-    static func activityDuration(hours: Int, minutes: Int, seconds: Int) -> String {
-        if hours > 0 { return sa("\(hours)h \(minutes)m", "\(hours) 时 \(minutes) 分") }
-        if minutes > 0 { return sa("\(minutes)m \(seconds)s", "\(minutes) 分 \(seconds) 秒") }
-        return sa("\(seconds)s", "\(seconds) 秒")
     }
 
     /// Heatmap cell tooltip, e.g. "May 12 · 1.2M tokens".
