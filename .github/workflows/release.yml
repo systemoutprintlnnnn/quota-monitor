@@ -1,6 +1,7 @@
 # Triggered on `v*` tag push. Runs tools/release.sh end-to-end on a
 # macos-15 runner and publishes a GitHub Release with the DMG + sha256
-# attached.
+# attached. A parallel job rebuilds with CodexMonitor branding and
+# publishes to the codex-monitor repo.
 #
 # Why this exists: tools/release.sh has always run the full pipeline
 # locally (tests → release build → DMG → mount-verify) but the final
@@ -9,10 +10,19 @@
 # closes the gap so `git push origin v0.2.10` produces a published
 # release on its own.
 #
+# Dual-brand releases: the same source code produces two branded DMGs
+# — one under "Quota Monitor" (this repo), one under "CodexMonitor"
+# (the codex-monitor repo). Both run in parallel after tests pass.
+#
 # Failure handling: deliberately no auto-tag-deletion. If anything fails
 # the tag stays put so the developer can investigate, then either re-run
 # the failed job from the Actions UI, or delete + recut the tag manually
 # (git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z).
+#
+# Secret setup (one-time):
+#   CODEX_MONITOR_PAT — a Personal Access Token with `repo` and
+#   `workflow` scopes, created by the codex-monitor repo owner.
+#   Store it in this repo's Settings → Secrets and variables → Actions.
 
 name: release
 
@@ -31,10 +41,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-release:
+  # ── shared gate: tests must pass before any DMG is built ──────────
+  test:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Verify tag matches Resources/VERSION
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          echo "tag:  ${TAG_VERSION}"
+          echo "file: ${FILE_VERSION}"
+          if [[ "${TAG_VERSION}" != "${FILE_VERSION}" ]]; then
+            echo "::error::tag '${GITHUB_REF_NAME}' does not match Resources/VERSION '${FILE_VERSION}'"
+            exit 1
+          fi
+      - name: Run tests
+        run: swift test --disable-keychain
+
+  # ── Quota Monitor (this repo) ─────────────────────────────────────
+  release-quota-monitor:
+    needs: test
     runs-on: macos-15
     timeout-minutes: 30
-
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,21 +78,6 @@ jobs:
         run: |
           swift --version
           xcodebuild -version || true
-
-      - name: Verify tag matches Resources/VERSION
-        # Hard-fail if the pushed tag and the on-disk VERSION disagree.
-        # Catches the common slip of tagging without bumping VERSION —
-        # release.sh would otherwise happily build a DMG named after the
-        # file's version, not the tag's.
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          FILE_VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
-          echo "tag:  ${TAG_VERSION}"
-          echo "file: ${FILE_VERSION}"
-          if [[ "${TAG_VERSION}" != "${FILE_VERSION}" ]]; then
-            echo "::error::tag '${GITHUB_REF_NAME}' does not match Resources/VERSION '${FILE_VERSION}'"
-            exit 1
-          fi
 
       - name: Run release pipeline
         # tests + release build + DMG + sha256 + mount-verify self-check.
@@ -104,4 +120,62 @@ jobs:
             "dist/${BRAND_CODE}-${VERSION}.dmg" \
             "dist/${BRAND_CODE}-${VERSION}.dmg.sha256" \
             --title "${BRAND_CODE} ${VERSION}" \
+            --notes-file "${{ steps.notes.outputs.path }}"
+
+  # ── CodexMonitor (codex-monitor repo) ─────────────────────────────
+  release-codex-monitor:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version || true
+
+      - name: Switch branding to CodexMonitor
+        run: |
+          sed -i '' 's/appDisplayName = ".*"/appDisplayName = "CodexMonitor"/' \
+            QuotaMonitor/Core/Branding.swift
+          sed -i '' 's/appCodeName = ".*"/appCodeName = "CodexMonitor"/' \
+            QuotaMonitor/Core/Branding.swift
+          echo "==> Branding after switch:"
+          grep -E 'app(DisplayName|CodeName)' QuotaMonitor/Core/Branding.swift
+
+      - name: Run release pipeline
+        run: ./tools/release.sh
+
+      - name: Extract CHANGELOG section for this release
+        id: notes
+        run: |
+          VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          NOTES_FILE="$(mktemp -t release-notes)"
+          awk -v hdr="## [${VERSION}] " '
+            substr($0, 1, length(hdr)) == hdr { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "${NOTES_FILE}"
+          if [[ ! -s "${NOTES_FILE}" ]]; then
+            echo "::warning::no CHANGELOG section found for ${VERSION}, using stub"
+            echo "Release ${VERSION}. See CHANGELOG.md for details." > "${NOTES_FILE}"
+          fi
+          echo "path=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create GitHub Release on codex-monitor repo
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_MONITOR_PAT }}
+        run: |
+          VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          DMG="dist/CodexMonitor-${VERSION}.dmg"
+          SHA="${DMG}.sha256"
+          if [[ ! -f "${DMG}" ]]; then
+            echo "error: ${DMG} not found" >&2; exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" \
+            "${DMG}" "${SHA}" \
+            --repo systemoutprintlnnnn/codex-monitor \
+            --title "CodexMonitor ${VERSION}" \
             --notes-file "${{ steps.notes.outputs.path }}"
