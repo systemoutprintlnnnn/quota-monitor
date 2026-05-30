@@ -75,7 +75,7 @@ MIN_OS="14.0"
 # backticks inside the heredoc body as legacy command substitution
 # even with a quoted delimiter, and the regex for `code` spans
 # needs literal backticks.
-EN_NOTES_HTML="$(python3 tools/changelog-to-html.py "${VERSION}" CHANGELOG.md)"
+EN_NOTES_HTML="$(python3 tools/changelog-to-html.py --lang en "${VERSION}" CHANGELOG.md)"
 
 # Hard-require the Simplified-Chinese section so a release can't
 # silently ship English-only notes — fixed bilingual notes are the
@@ -89,7 +89,7 @@ if [[ ! -f "${ZH_CHANGELOG}" ]] || \
     echo "       to CHANGELOG.md) before generating the appcast item." >&2
     exit 1
 fi
-ZH_NOTES_HTML="$(python3 tools/changelog-to-html.py "${VERSION}" "${ZH_CHANGELOG}")"
+ZH_NOTES_HTML="$(python3 tools/changelog-to-html.py --lang zh-Hans "${VERSION}" "${ZH_CHANGELOG}")"
 
 cat <<APPCAST_ITEM
 

@@ -4,13 +4,20 @@ inline HTML suitable for Sparkle's release-notes WebView (the
 <description> CDATA block in an appcast item).
 
 Usage:
-  ./changelog-to-html.py [--format summary|full|both] <version> [CHANGELOG.md]
+  ./changelog-to-html.py [--format summary|full|both] [--lang en|zh-Hans]
+                         <version> [CHANGELOG.md]
 
 The second positional argument is the changelog file to read from; it
 defaults to CHANGELOG.md. Pass CHANGELOG.zh-Hans.md to render the
 Simplified-Chinese release notes — release-sparkle.sh calls this twice
 (once per language) to emit the bilingual <description xml:lang="…">
 nodes Sparkle selects between at parse time.
+
+The few user-visible labels (the ``both`` details toggle and the
+missing-section fallback line) are localized via ``--lang``. When omitted,
+the language is inferred from the changelog filename (e.g.
+CHANGELOG.zh-Hans.md → zh-Hans), so the Chinese notes don't ship an English
+"Show full details" toggle.
 
 --format controls the output structure:
   summary  – only the ``#### Summary`` bullets (no detail sections).
@@ -37,6 +44,38 @@ import re
 import sys
 
 
+# User-visible labels keyed by language. Only these few strings differ
+# between languages — the emitted HTML structure is identical. Add a row to
+# localize another language's appcast notes. ``fallback`` is a format string
+# taking {changelog} and {version}.
+LABELS = {
+    'en': {
+        'show': 'Show full details',
+        'hide': 'Hide details',
+        'fallback': "See {changelog} for what's new in {version}.",
+    },
+    'zh-Hans': {
+        # Match L10n.updateShowDetails / updateHideDetails so the appcast
+        # toggle reads the same as the in-app one.
+        'show': '查看完整变更',
+        'hide': '收起详情',
+        'fallback': '{version} 的更新内容详见 {changelog}。',
+    },
+}
+
+
+def resolve_lang(lang: str | None, changelog: str) -> str:
+    """Pick the label language: explicit --lang wins; otherwise infer from
+    the changelog filename (CHANGELOG.zh-Hans.md → zh-Hans); default English."""
+    if lang:
+        return lang if lang in LABELS else 'en'
+    name = changelog.lower()
+    for key in LABELS:
+        if key != 'en' and key.lower() in name:
+            return key
+    return 'en'
+
+
 def esc(s: str) -> str:
     return (s.replace('&', '&amp;')
              .replace('<', '&lt;')
@@ -52,18 +91,21 @@ def inline_md(s: str) -> str:
     return s
 
 
-def parse_args() -> tuple[str, str, str]:
-    """Return (format, version, changelog_path)."""
+def parse_args() -> tuple[str, str, str, str | None]:
+    """Return (format, version, changelog_path, lang)."""
     ap = argparse.ArgumentParser(
         description='Convert a changelog section to Sparkle HTML.')
     ap.add_argument('--format', choices=['summary', 'full', 'both'],
                     default='both',
                     help='Output format (default: both)')
+    ap.add_argument('--lang', choices=sorted(LABELS), default=None,
+                    help='Label language for the details toggle / fallback. '
+                         'Default: inferred from the changelog filename.')
     ap.add_argument('version', help='Version string, e.g. 0.2.25')
     ap.add_argument('changelog', nargs='?', default='CHANGELOG.md',
                     help='Path to changelog file (default: CHANGELOG.md)')
     args = ap.parse_args()
-    return args.format, args.version, args.changelog
+    return args.format, args.version, args.changelog, args.lang
 
 
 def extract_section(changelog: str, version: str) -> str | None:
@@ -162,12 +204,12 @@ def render_full(section: str) -> str:
 
 
 def main() -> int:
-    fmt, version, changelog = parse_args()
+    fmt, version, changelog, lang = parse_args()
+    labels = LABELS[resolve_lang(lang, changelog)]
 
     section = extract_section(changelog, version)
     if section is None:
-        fallback = f'See {changelog} for what\'s new in {version}.'
-        print(fallback)
+        print(labels['fallback'].format(changelog=changelog, version=version))
         return 0
 
     # Detect whether we have a Summary block.
@@ -195,9 +237,9 @@ def main() -> int:
             f'{summary_html}\n'
             '</div>\n'
             f'<button class="details-toggle" '
-            f'data-show="{esc("Show full details")}" '
-            f'data-hide="{esc("Hide details")}">'
-            f'{esc("Show full details")} '
+            f'data-show="{esc(labels["show"])}" '
+            f'data-hide="{esc(labels["hide"])}">'
+            f'{esc(labels["show"])} '
             '<span class="arrow">&#x25BE;</span>'
             '</button>\n'
             '<div class="release-details">\n'
