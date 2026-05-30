@@ -29,11 +29,16 @@ steps. **One-time setup** is at the bottom — do that first.
    This runs tests, builds the release bundle, verifies codesigning, creates
    `dist/QuotaMonitor-X.Y.Z.dmg`, writes the `.sha256`, mounts the DMG, and
    verifies the app inside it.
-4. **Commit + tag**:
+   > **`main` is protected.** A GitHub ruleset requires every change to
+   > `main` to land through a pull request — `git push origin main` is
+   > rejected server-side. So the release commits go on a branch and merge
+   > via PR (steps 4 + 6). Tags are *not* branch-protected, so the tag push
+   > in step 7 still works directly.
+4. **Commit on a release branch**:
    ```sh
+   git switch -c release/vX.Y.Z
    git add Resources/VERSION CHANGELOG.md CHANGELOG.zh-Hans.md README.md docs
    git commit -m "Release vX.Y.Z"
-   git tag vX.Y.Z
    ```
 5. **Generate the appcast entry** (signs the DMG with your Ed25519
    private key and prints a ready-to-paste `<item>` block):
@@ -44,19 +49,32 @@ steps. **One-time setup** is at the bottom — do that first.
    `<channel>`. The block carries two `<description xml:lang="en">` /
    `<description xml:lang="zh-Hans">` nodes; Sparkle shows whichever
    matches the user's macOS system language (falling back to English),
-   so leave both in place.
-6. **Publish**:
+   so leave both in place. Commit it on the same branch:
    ```sh
    git add appcast.xml
    git commit -m "appcast: vX.Y.Z"
-   git push origin main vX.Y.Z
-   gh release create vX.Y.Z dist/QuotaMonitor-X.Y.Z.dmg \
+   ```
+6. **Open + merge the PR** (the ruleset requires 0 approvals, so you can
+   self-merge):
+   ```sh
+   git push -u origin release/vX.Y.Z
+   gh pr create --base main --title "Release vX.Y.Z" --fill
+   gh pr merge --squash --delete-branch    # or --merge
+   ```
+7. **Tag + publish** (run from `main` after the merge so the tag points at
+   the released commit):
+   ```sh
+   git switch main && git pull
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   gh release create vX.Y.Z \
+       dist/QuotaMonitor-X.Y.Z.dmg dist/QuotaMonitor-X.Y.Z.dmg.sha256 \
        --title "QuotaMonitor X.Y.Z" --notes-from-tag
    ```
-   The instant `appcast.xml` lands on `main`, every running copy of
-   QuotaMonitor will see the new version on its next scheduled check
-   (default 24 h). The GitHub release page hosts the actual DMG
-   download.
+   The tag push triggers `.github/workflows/release.yml`. The instant the
+   merged `appcast.xml` is on `main`, every running copy of QuotaMonitor
+   sees the new version on its next scheduled check (default 24 h). The
+   GitHub release page hosts the actual DMG download.
 
 That's it. No notarization, no Apple Developer cert, no PKG. The Ed25519
 signature in the appcast item is what Sparkle verifies before swapping the
