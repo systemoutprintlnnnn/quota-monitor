@@ -40,6 +40,7 @@ struct DashboardView: View {
                         providerShares30d: snapshot.providerShares30d
                             .filter { settings.enabledProviders.contains($0.provider) },
                         showProviderDonut: settings.enabledProviders.count > 1)
+                    ActivitySection(activity: snapshot.activity)
                 } else {
                     emptyState
                 }
