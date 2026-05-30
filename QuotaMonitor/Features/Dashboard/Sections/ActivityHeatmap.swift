@@ -79,7 +79,7 @@ struct ActivityHeatmap: View {
     }
 
     @ViewBuilder
-    private func cellView(_ cell entry: HeatmapModel.Cell) -> some View {
+    private func cellView(_ entry: HeatmapModel.Cell) -> some View {
         RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(HeatmapPalette.color(level: entry.level))
             .frame(width: cell, height: cell)
@@ -185,7 +185,7 @@ struct HeatmapModel {
         //    new month.
         let monthFormatter = DateFormatter()
         monthFormatter.calendar = calendar
-        monthFormatter.locale = LocalizationStore.shared.language == .simplifiedChinese
+        monthFormatter.locale = LocalizationStore.activeLanguage == .simplifiedChinese
             ? Locale(identifier: "zh_Hans")
             : Locale(identifier: "en_US")
         monthFormatter.setLocalizedDateFormatFromTemplate("MMM")

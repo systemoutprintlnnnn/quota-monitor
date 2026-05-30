@@ -10,7 +10,7 @@ import Foundation
 extension L10n {
 
     private static func sa(_ en: String, _ zh: String) -> String {
-        switch LocalizationStore.shared.language {
+        switch LocalizationStore.activeLanguage {
         case .english: return en
         case .simplifiedChinese: return zh
         }
