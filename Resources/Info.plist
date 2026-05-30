@@ -2,56 +2,82 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleDisplayName</key>
-	<string>Quota Monitor</string>
-	<key>CFBundleExecutable</key>
-	<string>QuotaMonitor</string>
-	<key>CFBundleIconFile</key>
-	<string>AppIcon</string>
-	<key>CFBundleIdentifier</key>
-	<string>dev.tjzhou.QuotaMonitor</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>QuotaMonitor</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>0.0.0</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>dev.tjzhou.QuotaMonitor</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>quotamonitor</string>
-			</array>
-		</dict>
-	</array>
-	<key>CFBundleVersion</key>
-	<string>0</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>14.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
-	<key>SUEnableInstallerLauncherService</key>
-	<false/>
-	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/systemoutprintlnnnn/quota-monitor/main/appcast.xml</string>
-	<key>SUPublicEDKey</key>
-	<string>8sOkcOVgCtbe0byQ/ICUy9qBhBcO4piJ0FPjAr+fXLA=</string>
-	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>QuotaMonitor</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>dev.tjzhou.QuotaMonitor</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>QuotaMonitor</string>
+    <key>CFBundleDisplayName</key>
+    <string>Quota Monitor</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>0</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <!--
+      Custom URL scheme used internally to open SwiftUI Window scenes
+      (onboarding / dashboard / settings) from AppKit code that has no
+      `openWindow` action of its own (`AppDelegate` / `StatusItemController`).
+      `WindowRouter.request(_:)` opens `quotamonitor://<window-id>`; each
+      Window scene claims its id via `.handlesExternalEvents(matching:)`.
+    -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>dev.tjzhou.QuotaMonitor</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>quotamonitor</string>
+            </array>
+        </dict>
+    </array>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!--
+      Sparkle (auto-update) configuration.
+
+      SUFeedURL points at the appcast XML in this repo. We host it on
+      raw.githubusercontent.com so a release only needs a `git push` to
+      reach every user. Switching to GitHub Pages later is a URL change
+      with no client-side work.
+
+      SUPublicEDKey is the BASE64 Ed25519 public key. The matching
+      private key lives outside this repo (see docs/release.md) and is
+      used by `sign_update` to sign every DMG. Empty key here = Sparkle
+      will refuse to install updates (intended fail-safe). The release
+      pipeline must replace this with the real key before shipping.
+
+      SUEnableInstallerLauncherService=false because we're not Apple-
+      notarized; the in-process installer path is good enough for
+      ad-hoc-signed builds and avoids the XPC installer's stricter
+      sandbox checks.
+    -->
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/systemoutprintlnnnn/quota-monitor/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>QzgtY6kPCCK/S98RMT5u03HVx8PTd+cahlHQti+Fmak=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUEnableInstallerLauncherService</key>
+    <false/>
 </dict>
 </plist>
