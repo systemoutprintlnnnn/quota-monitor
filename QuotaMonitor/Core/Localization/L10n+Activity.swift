@@ -30,9 +30,6 @@ extension L10n {
     // MARK: - heatmap
 
     static var activityTokenActivity: String { sa("Token activity", "Token 活跃度") }
-    static var activityModeDaily: String { sa("Daily", "每日") }
-    static var activityModeWeekly: String { sa("Weekly", "每周") }
-    static var activityModeCumulative: String { sa("Cumulative", "累计") }
     static var activityHeatmapLess: String { sa("Less", "少") }
     static var activityHeatmapMore: String { sa("More", "多") }
 

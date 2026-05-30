@@ -2,8 +2,7 @@ import SwiftUI
 
 /// Activity card: the lifetime / engagement profile a CodeX-style usage
 /// screen shows. A four-up stat strip (lifetime tokens, peak day, current
-/// + longest streak) over a contribution-style heatmap with a Daily /
-/// Weekly / Cumulative toggle.
+/// + longest streak) over a contribution-style daily heatmap.
 ///
 /// Reads `DashboardSnapshot.activity`, which `loadDashboard` already scopes
 /// to the active provider filter — so every number here follows the
@@ -11,8 +10,6 @@ import SwiftUI
 struct ActivitySection: View {
     @Environment(SettingsStore.self) private var settings
     let activity: ActivitySnapshot
-
-    @State private var mode: HeatmapMode = .daily
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -25,7 +22,7 @@ struct ActivitySection: View {
             statStrip
 
             if activity.hasData {
-                heatmapCard
+                chartCard
             } else {
                 Text(L10n.activityNoData)
                     .font(.caption)
@@ -94,26 +91,17 @@ struct ActivitySection: View {
         .modifier(StatCellHelp(help))
     }
 
-    // MARK: - heatmap
+    // MARK: - chart
 
-    private var heatmapCard: some View {
+    private var chartCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(L10n.activityTokenActivity)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Picker("", selection: $mode) {
-                    ForEach(HeatmapMode.allCases) { m in
-                        Text(m.label).tag(m)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
             }
             ActivityHeatmap(
                 daily: activity.daily,
-                mode: mode,
                 tokenLocale: settings.tokenFormatLocale)
         }
     }

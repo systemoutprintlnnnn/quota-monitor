@@ -26,8 +26,7 @@ struct ActivitySnapshot: Sendable, Equatable {
     /// Longest run of consecutive active days, all-time.
     let longestStreakDays: Int
     /// Trailing ~1-year daily token series, oldest first, zero-filled.
-    /// Powers the heatmap — Daily / Weekly / Cumulative are all derived
-    /// from this in the view.
+    /// Powers the heatmap.
     let daily: [DailyPoint]
 
     static let empty = ActivitySnapshot(
