@@ -39,13 +39,31 @@ if [[ ! -f "${DMG_PATH}" ]]; then
     exit 1
 fi
 
-# sign_update reads the private key from the login Keychain under the
-# account name passed via --account. macOS may pop a one-time access
-# dialog the first time `sign_update` (vs. `generate_keys`) touches it;
-# click "Always Allow" so subsequent releases don't prompt. Output:
+# Two signing backends, picked by environment:
+#
+#   1. CI / headless (SPARKLE_PRIVATE_KEY set): there is no login
+#      Keychain on a GitHub Actions runner, so the private key arrives
+#      as a repo secret. We write it to a temp file and sign via
+#      --ed-key-file (the exact file format `generate_keys -x` exports,
+#      so the secret is just that export pasted verbatim). The temp
+#      file is removed on exit so the key never lingers on disk.
+#   2. Local maintainer (default): the key lives in the login Keychain
+#      under --account. macOS may pop a one-time access dialog the first
+#      time `sign_update` (vs. `generate_keys`) touches it; click
+#      "Always Allow" so subsequent releases don't prompt.
+#
+# Either way the output is the appcast enclosure attributes:
 #   sparkle:edSignature="…base64…" length="3785729"
-echo "==> Signing ${DMG_PATH} using Keychain account '${ACCOUNT}'"
-SIG_LINE="$("${SIGN_UPDATE_BIN}" --account "${ACCOUNT}" "${DMG_PATH}")"
+if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+    echo "==> Signing ${DMG_PATH} using SPARKLE_PRIVATE_KEY from environment"
+    KEYFILE="$(mktemp)"
+    trap 'rm -f "${KEYFILE}"' EXIT
+    printf '%s' "${SPARKLE_PRIVATE_KEY}" > "${KEYFILE}"
+    SIG_LINE="$("${SIGN_UPDATE_BIN}" --ed-key-file "${KEYFILE}" "${DMG_PATH}")"
+else
+    echo "==> Signing ${DMG_PATH} using Keychain account '${ACCOUNT}'"
+    SIG_LINE="$("${SIGN_UPDATE_BIN}" --account "${ACCOUNT}" "${DMG_PATH}")"
+fi
 
 DMG_FILE="$(basename "${DMG_PATH}")"
 DOWNLOAD_URL="https://github.com/systemoutprintlnnnn/quota-monitor/releases/download/v${VERSION}/${DMG_FILE}"
@@ -99,10 +117,11 @@ else
     ZH_NOTES_HTML="$(python3 tools/changelog-to-html.py --lang zh-Hans "${VERSION}" "${ZH_CHANGELOG}")"
 fi
 
-cat <<APPCAST_ITEM
-
-==> Paste this into appcast.xml (under <channel>, newest at top):
----------------------------------------------------------------
+# Build the <item> block once, then both (a) write a clean, banner-free
+# copy that automation (release.yml) can splice straight into
+# appcast.xml, and (b) print it with a human banner for the local paste
+# workflow.
+ITEM_BLOCK="$(cat <<APPCAST_ITEM
         <item>
             <title>QuotaMonitor ${VERSION}</title>
             <pubDate>${PUBDATE}</pubDate>
@@ -120,5 +139,17 @@ ${ZH_NOTES_HTML}
                 type="application/octet-stream"
                 ${SIG_LINE} />
         </item>
----------------------------------------------------------------
 APPCAST_ITEM
+)"
+
+ITEM_FILE="dist/appcast-item-${VERSION}.xml"
+printf '%s\n' "${ITEM_BLOCK}" > "${ITEM_FILE}"
+echo "==> Wrote ${ITEM_FILE}"
+
+cat <<APPCAST_BANNER
+
+==> Paste this into appcast.xml (under <channel>, newest at top):
+---------------------------------------------------------------
+${ITEM_BLOCK}
+---------------------------------------------------------------
+APPCAST_BANNER
