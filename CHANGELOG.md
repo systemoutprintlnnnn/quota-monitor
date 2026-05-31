@@ -7,6 +7,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.29] — 2026-05-31
+
+#### Summary
+- Update windows now show the embedded HTML change log instead of a blank panel
+
+### Fixed
+- **Release notes HTML now loads in the custom Sparkle update window.** WebKit reports `loadHTMLString(..., baseURL: nil)` as an initial `about:blank` navigation on current macOS, so the updater now allows that initial document load while continuing to block external navigation.
+
 ## [0.2.28] — 2026-05-31
 
 ### Added
