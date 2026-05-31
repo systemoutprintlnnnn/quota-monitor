@@ -148,6 +148,12 @@ enum PricingSeed {
         // sane even if LiteLLM is unreachable. cache_creation_price_per_million
         // stores the 5-minute cache write rate; 1-hour writes are computed
         // separately as 2x base input during backfill.
+        .init(modelId: "claude-opus-4-8", displayName: "Claude Opus 4.8",
+              inputPricePerMillion: 5.00, cachedInputPricePerMillion: 0.50, outputPricePerMillion: 25.00,
+              cacheCreationPricePerMillion: 6.25,
+              effectiveModelId: "claude-opus-4-8", isOfficial: false,
+              note: "Same list price as Claude Opus 4.7; refresh from LiteLLM for authoritative values.",
+              sourceUrl: "https://www.anthropic.com/pricing"),
         .init(modelId: "claude-opus-4-7", displayName: "Claude Opus 4.7",
               inputPricePerMillion: 5.00, cachedInputPricePerMillion: 0.50, outputPricePerMillion: 25.00,
               cacheCreationPricePerMillion: 6.25,
@@ -172,12 +178,39 @@ enum PricingSeed {
               effectiveModelId: "claude-sonnet-4-6", isOfficial: false,
               note: "Seeded from public list price; refresh from LiteLLM for authoritative values.",
               sourceUrl: "https://www.anthropic.com/pricing"),
+        .init(modelId: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5",
+              inputPricePerMillion: 3.00, cachedInputPricePerMillion: 0.30, outputPricePerMillion: 15.00,
+              cacheCreationPricePerMillion: 3.75,
+              effectiveModelId: "claude-sonnet-4-5-20250929", isOfficial: false,
+              note: "Same list price as Claude Sonnet 4.6 ($3/$15); refresh from LiteLLM for authoritative values.",
+              sourceUrl: "https://www.anthropic.com/pricing"),
         .init(modelId: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5",
               inputPricePerMillion: 1.00, cachedInputPricePerMillion: 0.10, outputPricePerMillion: 5.00,
               cacheCreationPricePerMillion: 1.25,
               effectiveModelId: "claude-haiku-4-5-20251001", isOfficial: false,
               note: "Seeded from public list price; refresh from LiteLLM for authoritative values.",
-              sourceUrl: "https://www.anthropic.com/pricing")
+              sourceUrl: "https://www.anthropic.com/pricing"),
+
+        // --- Zhipu GLM (Z.AI Anthropic-compatible endpoint) ---
+        // Official Z.AI USD list prices. These run through Codex/Claude-style
+        // clients pointed at the GLM endpoint, so they land with provider
+        // 'claude' and are priced uncached-input + cache-read + output. GLM
+        // bills no separate cache-write premium (cache_creation = 0); observed
+        // events carry no cache_creation tokens anyway.
+        //
+        // LiteLLM coverage differs by id: glm-4.7 IS in the catalog (as
+        // `zai/glm-4.7`, identical prices) so a refresh will adopt it once
+        // this seed row exists — applyLiteLLMUpdate only touches rows already
+        // present, hence the seed must go first. glm-5.1 is NOT in LiteLLM
+        // (only glm-5 / glm-5p1), so for it this seed is the sole authority.
+        .init(modelId: "glm-5.1", displayName: "GLM-5.1",
+              inputPricePerMillion: 1.40, cachedInputPricePerMillion: 0.26, outputPricePerMillion: 4.40,
+              effectiveModelId: "glm-5.1", isOfficial: true, note: nil,
+              sourceUrl: "https://docs.z.ai/guides/overview/pricing"),
+        .init(modelId: "glm-4.7", displayName: "GLM-4.7",
+              inputPricePerMillion: 0.60, cachedInputPricePerMillion: 0.11, outputPricePerMillion: 2.20,
+              effectiveModelId: "glm-4.7", isOfficial: true, note: nil,
+              sourceUrl: "https://docs.z.ai/guides/overview/pricing")
     ]
 
     /// Synthetic `*-fast` rows for every entry in `CodexFastMode.multipliers`.
