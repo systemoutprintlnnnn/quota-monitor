@@ -142,8 +142,20 @@ jobs:
             QuotaMonitor/Core/Branding.swift
           sed -i '' 's/appCodeName = ".*"/appCodeName = "CodexMonitor"/' \
             QuotaMonitor/Core/Branding.swift
+          # Repoint the Sparkle feed at the codex-monitor appcast. This build
+          # publishes its DMG to systemoutprintlnnnn/codex-monitor, so the
+          # shipped app must poll THAT repo's appcast.xml. Left unchanged, a
+          # CodexMonitor install would check Quota Monitor's feed and either
+          # miss CodexMonitor updates or be offered the wrong branded DMG.
+          # (build.sh copies Resources/Info.plist verbatim apart from version
+          # and brand-name injection, so editing it here flows into the build.)
+          sed -i '' \
+            's#systemoutprintlnnnn/quota-monitor/main/appcast.xml#systemoutprintlnnnn/codex-monitor/main/appcast.xml#' \
+            Resources/Info.plist
           echo "==> Branding after switch:"
           grep -E 'app(DisplayName|CodeName)' QuotaMonitor/Core/Branding.swift
+          echo "==> Sparkle feed after switch:"
+          grep -A1 SUFeedURL Resources/Info.plist
 
       - name: Run release pipeline
         run: ./tools/release.sh
