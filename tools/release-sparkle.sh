@@ -9,9 +9,14 @@
 # fact, only on the maintainer's machine.
 #
 # Usage:
-#   ./tools/release-sparkle.sh                       (uses dist/QuotaMonitor-<VERSION>.dmg)
+#   ./tools/release-sparkle.sh                       (uses dist/<BRAND_CODE>-<VERSION>.dmg)
 #   ./tools/release-sparkle.sh path/to/some.dmg      (sign an arbitrary file)
 #   QM_SPARKLE_ACCOUNT=myname ./tools/release-sparkle.sh
+#   RELEASE_REPO=systemoutprintlnnnn/codex-monitor ./tools/release-sparkle.sh
+#       (point the enclosure download URL at a different brand's repo)
+#
+# The <title> and default DMG name follow appCodeName in Branding.swift,
+# so a rebranded build signs and titles its appcast item automatically.
 #
 # After running, paste the printed <item>...</item> block into the
 # <channel> of appcast.xml, git commit + push, and Sparkle clients
@@ -75,7 +80,12 @@ else
 fi
 
 DMG_FILE="$(basename "${DMG_PATH}")"
-DOWNLOAD_URL="https://github.com/systemoutprintlnnnn/quota-monitor/releases/download/v${VERSION}/${DMG_FILE}"
+# Which repo's Releases the enclosure URL points at. Defaults to this
+# repo (Quota Monitor); the CodexMonitor release job overrides it to
+# systemoutprintlnnnn/codex-monitor so the signed appcast points users
+# at the DMG actually published under that brand.
+RELEASE_REPO="${RELEASE_REPO:-systemoutprintlnnnn/quota-monitor}"
+DOWNLOAD_URL="https://github.com/${RELEASE_REPO}/releases/download/v${VERSION}/${DMG_FILE}"
 # RSS pubDate must be RFC-822 (English month + weekday) regardless of
 # the maintainer's system locale. `LC_ALL=C` pins the C locale just
 # for this one invocation.

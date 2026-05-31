@@ -8,11 +8,16 @@ of the feed). Idempotent — if an <item> for the same sparkle:version is
 already present, it does nothing and exits 0, so re-running a release
 job can't create duplicate entries.
 
+If the feed has no <item> yet (a freshly-seeded appcast for a newly
+branded variant's first release), the item is inserted before
+</channel> instead, so the first release still produces a valid feed.
+
     tools/appcast-insert.py dist/appcast-item-0.2.28.xml appcast.xml
 
 Exit codes:
     0  inserted, or already present (no-op)
-    1  malformed input (missing <sparkle:version>, no <item> anchor)
+    1  malformed input (missing <sparkle:version>, or neither an
+       <item> nor a </channel> anchor to insert against)
 """
 import pathlib
 import re
@@ -46,14 +51,26 @@ def main() -> int:
     # the new entry *inside* that comment — silently commenting it out.
     # A line-anchored match skips prose occurrences.
     anchor_match = re.search(r"^[ \t]*<item>", feed, re.MULTILINE)
-    if not anchor_match:
-        print("error: no <item> element found in appcast.xml", file=sys.stderr)
+    if anchor_match:
+        line_start = anchor_match.start()
+        spliced = feed[:line_start] + item + feed[line_start:]
+        appcast_path.write_text(spliced)
+        print(f"inserted {version} above existing items")
+        return 0
+
+    # Empty channel (no <item> yet) — e.g. a freshly-seeded appcast for a
+    # newly-branded variant's first release. Fall back to inserting just
+    # before the channel's closing tag so the first item still lands inside
+    # <channel>…</channel>.
+    close_match = re.search(r"^[ \t]*</channel>", feed, re.MULTILINE)
+    if not close_match:
+        print("error: appcast.xml has no <item> and no </channel> anchor", file=sys.stderr)
         return 1
 
-    line_start = anchor_match.start()
+    line_start = close_match.start()
     spliced = feed[:line_start] + item + feed[line_start:]
     appcast_path.write_text(spliced)
-    print(f"inserted {version} above existing items")
+    print(f"inserted {version} into empty channel")
     return 0
 
 
