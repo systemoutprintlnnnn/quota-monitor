@@ -15,6 +15,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(LocalizationStore.self) private var loc
+    @Environment(\.openWindow) private var openWindow
     @State private var settings = SettingsStore.shared
 
     var body: some View {
@@ -42,6 +43,19 @@ struct SettingsView: View {
         // Form controls (Toggle / Picker / Stepper labels) are unaffected
         // because they render as control text, not Text.
         .textSelection(.enabled)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    WindowCrossLinkActions.scene(
+                        env: env,
+                        openWindow: { openWindow(id: $0) }
+                    ).openDashboardFromSettings()
+                } label: {
+                    Label(L10n.openDashboard, systemImage: "chart.bar.xaxis")
+                }
+                .help(L10n.openDashboard)
+            }
+        }
         // Pure menu-bar agent unless another window is still up. Mirrors
         // MainWindowView's onDisappear — closing Settings shouldn't leave
         // a stale Dock icon behind once the Dashboard is also closed.
