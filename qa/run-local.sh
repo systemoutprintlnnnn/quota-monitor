@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+. "${ROOT_DIR}/qa/lib/common.sh"
+
+qm_require_command defaults
+qm_require_command sqlite3
+qm_require_command plutil
+
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+WORK_ROOT="${QM_QA_WORK_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/quotamonitor-qa.XXXXXX")}"
+QA_HOME="${WORK_ROOT}/home"
+ARTIFACTS="${QM_QA_ARTIFACTS:-${ROOT_DIR}/.build/qa-artifacts/${RUN_ID}}"
+DEFAULTS_SUITE="${QM_QA_DEFAULTS_SUITE:-dev.tjzhou.QuotaMonitor.QA.${RUN_ID}.$$}"
+STATE_JSON="${ARTIFACTS}/app-state.json"
+DB_PATH="${QA_HOME}/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
+DEV_LOG="${QA_HOME}/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log"
+
+cleanup() {
+    pkill -x QuotaMonitor >/dev/null 2>&1 || true
+    HOME="$QA_HOME" defaults delete "$DEFAULTS_SUITE" >/dev/null 2>&1 || true
+    if [[ -z "${QM_QA_KEEP_WORK_ROOT:-}" ]]; then
+        rm -rf "$WORK_ROOT"
+    fi
+}
+trap cleanup EXIT
+
+mkdir -p "$QA_HOME" "$ARTIFACTS"
+qm_write_defaults "$QA_HOME" "$DEFAULTS_SUITE"
+qm_seed_fixtures "$QA_HOME"
+
+export CODEX_HOME="$QA_HOME/.codex"
+export QUOTAMONITOR_QA_HOME="$QA_HOME"
+export QUOTAMONITOR_QA_LAUNCH_HOME="$QA_HOME"
+export QUOTAMONITOR_QA_DEFAULTS_SUITE="$DEFAULTS_SUITE"
+export QUOTAMONITOR_QA_OUTPUT_DIR="$ARTIFACTS"
+export QUOTAMONITOR_QA_STEPS="${QUOTAMONITOR_QA_STEPS:-open-dashboard,open-settings,open-menubar-help,show-popover,refresh-all,wait,snapshot}"
+
+"${ROOT_DIR}/script/build_and_run.sh" --qa
+
+qm_retry_until 30 1 test -f "$STATE_JSON" || {
+    echo "error: QA state was not written: $STATE_JSON" >&2
+    exit 1
+}
+
+db_has_usage() {
+    [[ -f "$DB_PATH" ]] || return 1
+    local counts
+    counts="$(sqlite3 "$DB_PATH" "SELECT (SELECT COUNT(*) FROM sessions), (SELECT COUNT(*) FROM usage_events), (SELECT COUNT(*) FROM rate_limit_samples);")"
+    IFS='|' read -r sessions events samples <<<"$counts"
+    [[ "${sessions:-0}" -gt 0 && "${events:-0}" -gt 0 && "${samples:-0}" -gt 0 ]]
+}
+
+qm_retry_until 30 1 db_has_usage || {
+    echo "error: QA database did not import expected fixture data: $DB_PATH" >&2
+    exit 1
+}
+
+sqlite3 "$DB_PATH" <<SQL >"${ARTIFACTS}/db-counts.txt"
+.headers on
+.mode column
+SELECT provider, COUNT(*) AS sessions FROM sessions GROUP BY provider ORDER BY provider;
+SELECT provider, COUNT(*) AS events, SUM(total_tokens) AS tokens FROM usage_events GROUP BY provider ORDER BY provider;
+SELECT source_kind, bucket, COUNT(*) AS samples FROM rate_limit_samples GROUP BY source_kind, bucket ORDER BY source_kind, bucket;
+SQL
+
+if [[ -f "$DEV_LOG" ]]; then
+    cp "$DEV_LOG" "${ARTIFACTS}/quotamonitor-dev.log"
+fi
+
+if command -v screencapture >/dev/null 2>&1; then
+    screencapture -x "${ARTIFACTS}/screen.png" >/dev/null 2>&1 || {
+        echo "warning: screencapture failed; Screen Recording permission may be missing" \
+            >"${ARTIFACTS}/screen-capture-warning.txt"
+    }
+fi
+
+if command -v osascript >/dev/null 2>&1; then
+    if ! osascript "${ROOT_DIR}/qa/dump-ui.applescript" "${ARTIFACTS}/ax-tree.txt" \
+        >"${ARTIFACTS}/ax-dump.stdout" 2>"${ARTIFACTS}/ax-dump.stderr"; then
+        if [[ "${QM_QA_REQUIRE_AX:-0}" == "1" ]]; then
+            echo "error: Accessibility AX dump failed; grant Terminal/Codex Accessibility access" >&2
+            cat "${ARTIFACTS}/ax-dump.stderr" >&2 || true
+            exit 1
+        fi
+        echo "warning: AX dump failed; set QM_QA_REQUIRE_AX=1 to make this fatal" \
+            >"${ARTIFACTS}/ax-dump-warning.txt"
+    fi
+fi
+
+grep -q '"title" : "Quota Monitor"' "$STATE_JSON" || {
+    echo "error: dashboard window was not captured in QA state" >&2
+    exit 1
+}
+grep -q '"title" : "Settings"' "$STATE_JSON" || {
+    echo "error: settings window was not captured in QA state" >&2
+    exit 1
+}
+
+echo "QA artifacts: $ARTIFACTS"

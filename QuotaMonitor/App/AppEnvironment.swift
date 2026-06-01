@@ -410,6 +410,18 @@ final class AppEnvironment {
     /// Keeping this in one place guarantees both paths stay in sync (e.g.
     /// the scan-progress bar appears for either when a scan actually runs).
     func refreshAll(throttle: Bool, trigger: String) {
+        if LocalQAEnvironment.isActive() {
+            DeveloperLog.eventRecord(
+                "refresh.all.qa_local_only",
+                category: "app",
+                trigger: trigger,
+                fields: ["throttle": .bool(throttle)])
+            runScan(
+                minInterval: throttle ? 20 : nil,
+                trigger: trigger)
+            return
+        }
+
         let op = DeveloperLog.startOperation(
             "refresh.all",
             category: "app",

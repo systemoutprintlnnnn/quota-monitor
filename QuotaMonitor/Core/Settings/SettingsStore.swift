@@ -22,7 +22,8 @@ extension Notification.Name {
 @Observable
 @MainActor
 final class SettingsStore {
-    static let shared = SettingsStore()
+    static let shared = SettingsStore(
+        defaults: LocalQAEnvironment.userDefaults() ?? .standard)
 
     private let defaults: UserDefaults
 
@@ -296,7 +297,8 @@ final class SettingsStore {
     /// preference straight from UserDefaults and combines it with
     /// `LocalizationStore.activeLanguage` (also nonisolated).
     nonisolated static var tokenFormatLocaleNonisolated: Locale {
-        let stored = UserDefaults.standard.string(forKey: Keys.tokenUnitLanguage)
+        let stored = (LocalQAEnvironment.userDefaults() ?? .standard)
+            .string(forKey: Keys.tokenUnitLanguage)
             .flatMap(TokenUnitLanguage.init(rawValue:)) ?? .followLanguage
         switch stored {
         case .english: return Locale(identifier: "en_US")
@@ -585,7 +587,8 @@ final class SettingsStore {
     }
 
     nonisolated static var developerModeEnabledNonisolated: Bool {
-        UserDefaults.standard.bool(forKey: Keys.developerModeEnabled)
+        (LocalQAEnvironment.userDefaults() ?? .standard)
+            .bool(forKey: Keys.developerModeEnabled)
     }
 
     struct Snapshot: Sendable {
