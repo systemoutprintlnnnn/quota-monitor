@@ -88,7 +88,7 @@ struct MainWindowView: View {
                 } label: {
                     Label(L10n.openSettings, systemImage: "gearshape")
                 }
-                .help(L10n.openSettings)
+                .help(L10n.openSettingsTooltip)
             }
         }
         .onDisappear {

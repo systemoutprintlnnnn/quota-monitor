@@ -31,4 +31,12 @@ struct WindowCrossLinkActionsTests {
 
         #expect(events == ["activate", "open:dashboard", "refresh"])
     }
+
+    @Test
+    func toolbarTooltipsDescribeIconDestinations() {
+        #expect(L10n.openSettingsTooltip.contains(L10n.settingsWindowTitle))
+        #expect(L10n.openDashboardTooltip.contains(L10n.dashboardTitle))
+        #expect(L10n.openSettingsTooltip != L10n.openSettings)
+        #expect(L10n.openDashboardTooltip != L10n.openDashboard)
+    }
 }

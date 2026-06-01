@@ -53,7 +53,7 @@ struct SettingsView: View {
                 } label: {
                     Label(L10n.openDashboard, systemImage: "chart.bar.xaxis")
                 }
-                .help(L10n.openDashboard)
+                .help(L10n.openDashboardTooltip)
             }
         }
         // Pure menu-bar agent unless another window is still up. Mirrors
