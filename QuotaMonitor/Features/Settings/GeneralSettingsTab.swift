@@ -13,7 +13,6 @@ struct GeneralSettingsTab: View {
     @Environment(SettingsStore.self) private var settings
     @Environment(AppEnvironment.self) private var env
     @Environment(LocalizationStore.self) private var loc
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var settings = settings
@@ -177,8 +176,7 @@ struct GeneralSettingsTab: View {
                 // auto-popped window can reopen it here.
                 LabeledContent(L10n.menuBarHelpSettingsRow) {
                     Button(L10n.menuBarHelpSettingsOpen) {
-                        env.activateForWindow()
-                        openWindow(id: "menubar-help")
+                        WindowManager.shared.show("menubar-help")
                     }
                 }
             }

@@ -762,33 +762,13 @@ final class AppEnvironment {
         NSApp.setActivationPolicy(.accessory)
     }
 
+    /// Whether any app-owned window is currently on screen, excluding the
+    /// given ids. AppKit now owns exactly the four `WindowManager` windows
+    /// (all plain `NSWindow`), so this defers to that registry — no more
+    /// scanning `NSApp.windows` and filtering out the popover / status-bar
+    /// host by `NSPanel` / classname heuristics.
     static func hasVisibleAppWindow(excludingWindowIDs: Set<String> = []) -> Bool {
-        NSApp.windows.contains { win in
-            guard win.isVisible else { return false }
-            if let id = win.identifier?.rawValue, excludingWindowIDs.contains(id) {
-                return false
-            }
-            // Reject `NSPanel` subclasses — the menu-bar popover
-            // host, status-bar window, and any future SwiftUI
-            // transient panel are NSPanel-derived, while the
-            // SwiftUI `Window` scenes we open (Dashboard, Settings,
-            // Onboarding) are plain `NSWindow`. This single check
-            // catches the bulk of cases without depending on
-            // private class symbols.
-            if win is NSPanel { return false }
-            // Defence-in-depth: belt-and-suspenders against future
-            // SwiftUI host classes that subclass NSWindow directly
-            // but whose name still spells out their role. The two
-            // current `NSStatusBarWindow` / popover panel classes
-            // are already rejected by the NSPanel check above; this
-            // line only matters if a future macOS reparents one of
-            // those hosts onto NSWindow.
-            let cls = NSStringFromClass(type(of: win))
-            if cls.contains("StatusBar") || cls.contains("Popover") {
-                return false
-            }
-            return true
-        }
+        WindowManager.shared.hasVisibleWindow(excluding: excludingWindowIDs)
     }
 
     /// Re-apply the activation policy based on the current setting.

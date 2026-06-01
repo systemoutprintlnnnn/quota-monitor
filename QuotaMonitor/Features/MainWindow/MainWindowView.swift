@@ -78,11 +78,8 @@ struct MainWindowView: View {
                 .help(L10n.reload)
             }
         }
-        .onDisappear {
-            // When user closes the window, drop back to menu-bar-only mode so
-            // the Dock icon doesn't linger.
-            env.demoteToAccessory(excludingWindowIDs: ["dashboard"])
-        }
+        // Demote-on-close is owned by `AppWindowController.windowWillClose`
+        // now that this is an AppKit-hosted window.
     }
 
     /// Filter cases the user is allowed to choose. Always includes

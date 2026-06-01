@@ -1,0 +1,211 @@
+import AppKit
+import SwiftUI
+
+/// AppKit-owned window management. Replaces the SwiftUI `Window(id:)` scenes +
+/// the `quotamonitor://` URL-scheme router (`WindowRouter`). AppKit now
+/// authoritatively owns the whole shell — the status item, the popover, and
+/// these four windows — while the SwiftUI feature views are hosted unchanged
+/// via `NSHostingController`.
+///
+/// Why this exists: the old design split window-opening across two worlds
+/// (AppKit code went through the custom URL scheme; SwiftUI views went through
+/// `@Environment(\.openWindow)`), and a pile of defensive code reconciled them
+/// (`closeStrayWindows`, `hasVisibleAppWindow` classname heuristics, per-view
+/// `onAppear` focus grabs, the `Settings {}`-avoidance dance). Owning the
+/// windows here collapses all of that into one place.
+@MainActor
+final class WindowManager {
+    static let shared = WindowManager()
+
+    /// Set once at launch by `AppDelegate`. Only the Settings window needs it
+    /// (its "Check Now" button + automatic-check toggle wire to this exact
+    /// `SPUUpdater`). Implicitly-unwrapped: Settings can't open before launch
+    /// has finished configuring us.
+    private var updater: UpdaterController!
+
+    /// Controllers keyed by window id. A controller is recreated on reopen when
+    /// its window is not currently visible, so the hosted SwiftUI view remounts
+    /// and its `.task` re-fires — matching the old `Window(id:)` scene
+    /// behaviour. The stale (closed) controller is replaced inside `show(_:)`,
+    /// never inside a delegate callback, so we never deallocate a controller
+    /// while it is running `windowWillClose`.
+    private var controllers: [String: AppWindowController] = [:]
+
+    func configure(updater: UpdaterController) {
+        self.updater = updater
+    }
+
+    /// Open — or bring forward — the window for `id`.
+    func show(_ id: String) {
+        // policy → activate, BEFORE makeKeyAndOrderFront (correct order for an
+        // `.accessory` app). `activateForWindow` already does policy+activate.
+        AppEnvironment.shared.activateForWindow()
+        if let existing = controllers[id], existing.window?.isVisible == true {
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = makeController(id: id)   // replaces any stale (closed) one
+        controllers[id] = controller
+        controller.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Programmatically close the window for `id`. Bypasses `windowShouldClose`
+    /// (that gate only guards the user's red-button close), so this always
+    /// closes — used by the onboarding finish path and the help "Dismiss".
+    func close(_ id: String) {
+        controllers[id]?.window?.close()
+    }
+
+    /// Whether any app-owned window is currently on screen, excluding `ids`.
+    /// Replaces `AppEnvironment.hasVisibleAppWindow`'s `NSPanel`/classname
+    /// heuristics: we own exactly these plain `NSWindow`s, so there is nothing
+    /// to guess about.
+    func hasVisibleWindow(excluding ids: Set<String> = []) -> Bool {
+        controllers.contains { id, controller in
+            !ids.contains(id) && (controller.window?.isVisible ?? false)
+        }
+    }
+
+    /// Called from `AppWindowController.windowWillClose`. Demote back to
+    /// menu-bar-only once the last app window goes away. Deliberately does NOT
+    /// mutate `controllers` — doing so here would deallocate the controller
+    /// mid-callback. The stale controller is replaced on the next `show(_:)`.
+    func handleWillClose(_ id: String) {
+        AppEnvironment.shared.demoteToAccessory(excludingWindowIDs: [id])
+    }
+
+    /// Pure decision for the onboarding hard-gate, extracted for unit testing.
+    /// The window may close only once onboarding is fully complete.
+    static func shouldAllowOnboardingClose(needsOnboarding: Bool,
+                                           needsProvider: Bool) -> Bool {
+        !(needsOnboarding || needsProvider)
+    }
+
+    // MARK: - construction
+
+    private func makeController(id: String) -> AppWindowController {
+        let env = AppEnvironment.shared
+        let loc = LocalizationStore.shared
+        let settings = SettingsStore.shared
+
+        let root: AnyView
+        let config: WindowConfig
+        switch id {
+        case "dashboard":
+            root = AnyView(HostedWindow(content: MainWindowView())
+                .environment(env).environment(loc).environment(settings))
+            config = WindowConfig(
+                title: "Quota Monitor", resizable: true,
+                initialContentSize: NSSize(width: 980, height: 680),
+                minContentSize: NSSize(width: 820, height: 560),
+                autosaveName: "QuotaMonitor.dashboard")
+        case "settings":
+            root = AnyView(HostedWindow(content: SettingsView())
+                .environment(env).environment(loc).environment(settings)
+                .environment(updater))
+            config = WindowConfig(
+                title: L10n.settingsWindowTitle, resizable: true,
+                initialContentSize: NSSize(width: 620, height: 520),
+                minContentSize: NSSize(width: 480, height: 380),
+                autosaveName: nil)   // centred each open, matching defaultPosition(.center)
+        case "onboarding":
+            root = AnyView(HostedWindow(content: OnboardingView())
+                .environment(env).environment(loc).environment(settings))
+            config = WindowConfig(
+                title: L10n.onboardingWindowTitle, resizable: false,
+                initialContentSize: nil, minContentSize: nil, autosaveName: nil)
+        case "menubar-help":
+            root = AnyView(HostedWindow(content: MenuBarHelpView())
+                .environment(env).environment(loc).environment(settings))
+            config = WindowConfig(
+                title: L10n.menuBarHelpWindowTitle, resizable: false,
+                initialContentSize: nil, minContentSize: nil, autosaveName: nil)
+        default:
+            // Unknown id — should never happen. Build an empty window so a
+            // routing bug surfaces visibly rather than crashing.
+            root = AnyView(EmptyView())
+            config = WindowConfig(title: "", resizable: false,
+                                  initialContentSize: nil, minContentSize: nil,
+                                  autosaveName: nil)
+        }
+
+        let hosting = NSHostingController(rootView: root)
+        // Pinned windows size to content; resizable windows are sized by us
+        // (initial size + contentMinSize) so SwiftUI's auto-sizing can't fight
+        // the explicit constraints.
+        hosting.sizingOptions = config.resizable ? [] : [.preferredContentSize]
+
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
+        if config.resizable { style.insert(.resizable) }
+
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = style
+        window.title = config.title
+        window.identifier = NSUserInterfaceItemIdentifier(id)
+        window.isReleasedWhenClosed = false   // the controller owns the window
+        if let minSize = config.minContentSize { window.contentMinSize = minSize }
+        if let size = config.initialContentSize { window.setContentSize(size) }
+        if let autosave = config.autosaveName {
+            window.setFrameAutosaveName(autosave)   // restores a saved frame if present
+        } else {
+            window.center()
+        }
+
+        let controller = AppWindowController(window: window, id: id)
+        window.delegate = controller   // weak ref; `controllers` retains the controller
+        return controller
+    }
+
+    private struct WindowConfig {
+        let title: String
+        let resizable: Bool
+        let initialContentSize: NSSize?
+        let minContentSize: NSSize?
+        let autosaveName: String?
+    }
+}
+
+/// Hosts a feature view and re-mounts it on a language switch, mirroring the
+/// popover's `StatusItemController.HostedContent`. `L10n` reads are static, so
+/// SwiftUI can't track them; reading `loc.tickForceRedraw` in `.id(...)` forces
+/// the remount.
+private struct HostedWindow<Content: View>: View {
+    @Environment(LocalizationStore.self) private var loc
+    let content: Content
+    var body: some View {
+        content
+            .environment(\.locale, loc.locale)
+            .id(loc.tickForceRedraw)
+    }
+}
+
+/// Owns one window and acts as its delegate. `NSWindow.delegate` is `weak` and
+/// `WindowManager.controllers` retains this controller, so there is no cycle.
+@MainActor
+final class AppWindowController: NSWindowController, NSWindowDelegate {
+    private let id: String
+
+    init(window: NSWindow, id: String) {
+        self.id = id
+        super.init(window: window)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Hard-gate the onboarding window: the red-button close is allowed only
+    /// once onboarding is complete. Other windows always allow it. The
+    /// programmatic `WindowManager.close(_:)` does NOT route through here.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard id == "onboarding" else { return true }
+        return WindowManager.shouldAllowOnboardingClose(
+            needsOnboarding: LocalizationStore.shared.needsOnboarding,
+            needsProvider: SettingsStore.shared.needsProviderOnboarding)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        WindowManager.shared.handleWillClose(id)
+    }
+}

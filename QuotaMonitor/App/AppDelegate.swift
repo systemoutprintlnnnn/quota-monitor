@@ -7,11 +7,20 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
+    /// Sparkle updater. Owned here (it was previously a `@State` on
+    /// `QuotaMonitorApp`, which injected it into the Settings scene) so
+    /// `WindowManager` can hand it to the Settings window and the scheduled
+    /// background checks start at launch.
+    let updater = UpdaterController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = AppEnvironment.shared
         let loc = LocalizationStore.shared
         let settings = SettingsStore.shared
+
+        // AppKit now owns the four app windows (see WindowManager). Hand it the
+        // updater so the Settings window can wire "Check Now" / auto-check.
+        WindowManager.shared.configure(updater: updater)
 
         let controller = StatusItemController(
             env: env, localization: loc, settings: settings)
@@ -37,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let onboardingNeeded = loc.needsOnboarding || settings.needsProviderOnboarding
         Log.discover.info("launch onboardingNeeded=\(onboardingNeeded, privacy: .public)")
         if onboardingNeeded {
-            WindowRouter.shared.request("onboarding")
+            WindowManager.shared.show("onboarding")
             // A brand-new user is mid-wizard; defer the discoverability
             // check until they finish (see notification observer below).
             NotificationCenter.default.addObserver(
@@ -56,12 +65,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Close any SwiftUI `Window` scene that macOS auto-opened at launch.
-    /// Runs on the next runloop tick because the scene's `NSWindow` may
-    /// not exist yet inside `applicationDidFinishLaunching`.
+    /// Close the inert SwiftUI placeholder `Window` that macOS auto-opens at
+    /// launch. A SwiftUI `App` must declare at least one `Scene`; ours is a
+    /// hidden `Window(id: "__inert__")` that exists only to satisfy that
+    /// requirement (the four real windows are AppKit-owned via `WindowManager`).
+    /// Runs on the next runloop tick because the scene's `NSWindow` may not
+    /// exist yet inside `applicationDidFinishLaunching`.
     private func closeStrayWindows() {
         DispatchQueue.main.async {
-            let ids: Set<String> = ["onboarding", "dashboard", "settings", "menubar-help"]
+            let ids: Set<String> = ["__inert__"]
             for win in NSApp.windows {
                 guard let id = win.identifier?.rawValue, ids.contains(id) else { continue }
                 Log.discover.info("closing stray auto-opened window id=\(id, privacy: .public)")
@@ -80,8 +92,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if hasVisibleWindows { return true }   // bring the existing window forward
         let needsOnboarding = LocalizationStore.shared.needsOnboarding
             || SettingsStore.shared.needsProviderOnboarding
-        AppEnvironment.shared.activateForWindow()
-        WindowRouter.shared.request(needsOnboarding ? "onboarding" : "dashboard")
+        // `show` already does activate-then-order-front.
+        WindowManager.shared.show(needsOnboarding ? "onboarding" : "dashboard")
         return false
     }
 
@@ -135,8 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .showPopover:
             controller.showPopover()
         case .openFallbackWindow:
-            AppEnvironment.shared.activateForWindow()
-            WindowRouter.shared.request("menubar-help")
+            WindowManager.shared.show("menubar-help")
         case .none:
             break
         }

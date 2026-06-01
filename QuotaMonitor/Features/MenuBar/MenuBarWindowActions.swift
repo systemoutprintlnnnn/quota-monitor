@@ -4,7 +4,7 @@ import Foundation
 ///
 /// `MenuBarContentView` is mounted inside an `NSHostingController`, not a
 /// SwiftUI `Scene`, so it cannot rely on `@Environment(\.openWindow)` having
-/// a scene context. These actions route through `WindowRouter` by default.
+/// a scene context. These actions route through `WindowManager` by default.
 struct MenuBarWindowActions {
     var activateForWindow: @MainActor () -> Void
     var requestWindow: @MainActor (String) -> Void
@@ -14,7 +14,7 @@ struct MenuBarWindowActions {
     static func live(env: AppEnvironment) -> MenuBarWindowActions {
         MenuBarWindowActions(
             activateForWindow: { env.activateForWindow() },
-            requestWindow: { WindowRouter.shared.request($0) },
+            requestWindow: { WindowManager.shared.show($0) },
             refreshDashboard: { env.refreshDashboard() })
     }
 

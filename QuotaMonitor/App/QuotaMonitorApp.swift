@@ -20,11 +20,6 @@ struct QuotaMonitorApp: App {
     // localization — exposed in every Scene so any view can flip a
     // setting and have it reflected app-wide on the next render.
     @State private var settings: SettingsStore
-    // Sparkle (auto-update). Single instance — passed via `.environment`
-    // so the Settings tab can wire the "Check Now" button + automatic-
-    // check toggle to the same SPUUpdater that the scheduled background
-    // checks use. Lifetime is the app's; init is cheap (no network).
-    @State private var updater: UpdaterController
 
     init() {
         // Migrate UserDefaults from the legacy `dev.tjzhou.CodexMonitor`
@@ -39,7 +34,6 @@ struct QuotaMonitorApp: App {
         _environment = State(wrappedValue: AppEnvironment.shared)
         _localization = State(wrappedValue: LocalizationStore.shared)
         _settings = State(wrappedValue: SettingsStore.shared)
-        _updater = State(wrappedValue: UpdaterController())
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
             ?? "unknown"
         let bundleID = Bundle.main.bundleIdentifier ?? "unknown"
@@ -64,91 +58,22 @@ struct QuotaMonitorApp: App {
     }
 
     var body: some Scene {
-        // The menu-bar presence is now an AppKit `NSStatusItem` owned by
-        // `AppDelegate` / `StatusItemController` (SwiftUI's `MenuBarExtra`
-        // can neither open its popover programmatically nor expose its
-        // on-screen geometry — both of which the clip-detection feature
-        // needs). The launch fan-out that used to live on the
-        // `MenuBarExtra` content `.task` now runs in
-        // `AppDelegate.applicationDidFinishLaunching`.
-
-        // Standalone onboarding window, opened on launch by `AppDelegate`
-        // (via `WindowRouter`) when the user hasn't yet picked a language
-        // or a tracked-tools set. `OnboardingView` dismisses this window
-        // on Continue; if the user closes it early via the red titlebar
-        // button, OnboardingView re-opens it from onDisappear so they
-        // can't slip past the gate.
+        // The whole shell is AppKit-owned: the menu-bar presence is an
+        // `NSStatusItem` (`StatusItemController`), and the four real app
+        // windows — onboarding / dashboard / settings / menubar-help — are
+        // `NSWindowController`s managed by `WindowManager`, hosting these same
+        // SwiftUI views via `NSHostingController`. AppKit code and SwiftUI
+        // views all open windows through `WindowManager.show(_:)`; there is no
+        // longer a `quotamonitor://` URL scheme or `openWindow` split.
         //
-        // `.handlesExternalEvents(matching: ["onboarding"])` lets
-        // `WindowRouter` open this window from AppKit via the
-        // `quotamonitor://onboarding` URL (AppKit has no `openWindow`).
-        Window(L10n.onboardingWindowTitle, id: "onboarding") {
-            OnboardingView()
-                .environment(localization)
-                .environment(settings)
-                .environment(environment)
-                .environment(\.locale, localization.locale)
-                .id(localization.tickForceRedraw)
-        }
-        .handlesExternalEvents(matching: ["onboarding"])
-        // Pin the window size so the layout doesn't reflow when the
-        // user resizes mid-onboarding (the design assumes ~340pt wide).
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-
-        Window("Quota Monitor", id: "dashboard") {
-            MainWindowView()
-                .environment(environment)
-                .environment(localization)
-                .environment(settings)
-                .environment(\.locale, localization.locale)
-                .id(localization.tickForceRedraw)
-        }
-        .defaultSize(width: 980, height: 680)
-        // Opened from AppKit (the clipped-icon fallback) via
-        // `quotamonitor://dashboard`.
-        .handlesExternalEvents(matching: ["dashboard"])
-
-        // Recovery guide shown when the menu-bar icon is clipped. Opened
-        // from AppKit via `quotamonitor://menubar-help`, and from the
-        // Dashboard banner / Settings any time.
-        Window(L10n.menuBarHelpWindowTitle, id: "menubar-help") {
-            MenuBarHelpView()
-                .environment(environment)
-                .environment(localization)
-                .environment(settings)
-                .environment(\.locale, localization.locale)
-                .id(localization.tickForceRedraw)
+        // A SwiftUI `App` must still declare at least one `Scene`. This inert,
+        // hidden placeholder satisfies that requirement and nothing else;
+        // macOS auto-opens it at launch and `AppDelegate.closeStrayWindows()`
+        // immediately closes it.
+        Window("", id: "__inert__") {
+            EmptyView().frame(width: 0, height: 0)
         }
         .windowResizability(.contentSize)
-        .defaultPosition(.center)
-        .handlesExternalEvents(matching: ["menubar-help"])
-
-        // Settings is a regular `Window` scene rather than SwiftUI's
-        // special-purpose `Settings { }` scene. The latter closes
-        // itself whenever the app deactivates (which is what
-        // `setActivationPolicy(.accessory)` triggers), and that
-        // collision made the "Show Dock icon when windows are open"
-        // toggle untenable — flipping it OFF inside Settings would
-        // yank the very window the user was interacting with. As a
-        // regular Window the Settings scene stays open across
-        // activation-policy flips, so `applyDockIconPolicy()` can
-        // demote immediately on toggle OFF.
-        Window(L10n.settingsWindowTitle, id: "settings") {
-            SettingsView()
-                .environment(environment)
-                .environment(localization)
-                .environment(settings)
-                .environment(updater)
-                .environment(\.locale, localization.locale)
-                .id(localization.tickForceRedraw)
-        }
-        // Let the Settings window grow/shrink to whatever the inner
-        // view's min/ideal frame allows. Without this the scene defaults
-        // can clamp the window to its first measurement and ignore drag.
-        .windowResizability(.contentMinSize)
-        .defaultPosition(.center)
-        // Opened from the popover / AppKit via `quotamonitor://settings`.
-        .handlesExternalEvents(matching: ["settings"])
+        .defaultSize(width: 1, height: 1)
     }
 }
