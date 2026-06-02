@@ -64,6 +64,19 @@ qm_interactive_steps() {
     qm_default_steps
 }
 
+qm_steps_include_quit() {
+    local steps="$1"
+    local part trimmed
+    local -a parts
+    IFS=',' read -r -a parts <<<"$steps"
+    for part in "${parts[@]}"; do
+        trimmed="${part#"${part%%[![:space:]]*}"}"
+        trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+        [[ "$trimmed" == "quit" ]] && return 0
+    done
+    return 1
+}
+
 qm_app_artifacts_dir() {
     local home="$1"
     printf '%s\n' "$home/Library/Application Support/QuotaMonitor/QAArtifacts"
@@ -506,8 +519,8 @@ qm_assert_no_external_data_source_events() {
     local dev_log="${artifacts}/quotamonitor-dev.log"
     [[ -f "$dev_log" ]] || return 0
 
-    if grep -E '"event":"(appserver\.|ratelimits\.poll|claude_usage\.poll|claude_credentials|claude_cli)' "$dev_log" >&2; then
-        echo "error: QA run touched live Codex/Claude data sources" >&2
+    if grep -E '"event":"(appserver\.|ratelimits\.poll|claude_usage\.poll|claude_credentials|claude_cli|pricing\.refresh_if_stale\.refresh|pricing\.litellm_refresh")' "$dev_log" >&2; then
+        echo "error: QA run touched live external data sources" >&2
         return 1
     fi
 }

@@ -118,6 +118,16 @@ test_interactive_steps_are_safe_for_computer_use() {
         || fail "interactive QA steps must keep the app open: $steps"
 }
 
+test_steps_include_quit_detects_exact_step() {
+    qm_steps_include_quit "open-dashboard,snapshot,quit" \
+        || fail "quit step was not detected"
+    qm_steps_include_quit "open-dashboard, snapshot , quit " \
+        || fail "quit step with whitespace was not detected"
+    if qm_steps_include_quit "open-dashboard,acquit,snapshot"; then
+        fail "substring containing quit was incorrectly detected"
+    fi
+}
+
 test_app_artifacts_dir_lives_under_qa_home() {
     local home app_artifacts
     home="/tmp/qm-qa-home"
@@ -423,12 +433,29 @@ test_rejects_external_data_source_events() {
     fi
 }
 
+test_rejects_live_pricing_refresh_events() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-live-pricing-artifacts.XXXXXX")"
+    trap 'rm -rf "$dir"' RETURN
+
+    printf '{"event":"pricing.litellm_refresh","result":"success"}\n' >"$dir/quotamonitor-dev.log"
+
+    if qm_assert_no_external_data_source_events "$dir" >/dev/null 2>&1; then
+        fail "live pricing refresh event was accepted"
+    fi
+
+    printf '{"event":"pricing.litellm_refresh.skip","result":"skipped"}\n' >"$dir/quotamonitor-dev.log"
+    qm_assert_no_external_data_source_events "$dir" \
+        || fail "local QA pricing skip event should be accepted"
+}
+
 test_write_defaults
 test_seed_fixtures
 test_write_launch_config
 test_launch_config_base64
 test_default_steps_include_settings_exercise
 test_interactive_steps_are_safe_for_computer_use
+test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
 test_write_computer_qa_brief
 test_write_interactive_cleanup_script
@@ -439,4 +466,5 @@ test_copy_sqlite_snapshot_preserves_source
 test_write_real_data_computer_qa_brief_documents_shadow_boundary
 test_assert_real_data_artifact_contract
 test_rejects_external_data_source_events
+test_rejects_live_pricing_refresh_events
 echo "common_tests: ok"

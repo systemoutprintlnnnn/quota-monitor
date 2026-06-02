@@ -95,6 +95,41 @@ enum LocalQAEnvironment {
         return UserDefaults(suiteName: suite)
     }
 
+    static func processEnvironmentOverrides(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> [String: String] {
+        guard let configuration = activeConfiguration(
+            environment: environment,
+            arguments: arguments) else {
+            return [:]
+        }
+
+        var overrides: [String: String] = [:]
+        if let home = configuration.homeDirectory {
+            overrides["HOME"] = home.path
+        }
+        if let codexHome = configuration.codexHomeDirectory
+            ?? configuration.homeDirectory?.appendingPathComponent(".codex", isDirectory: true) {
+            overrides[codexHomeKey] = codexHome.path
+        }
+        return overrides
+    }
+
+    @discardableResult
+    static func applyProcessEnvironmentOverridesIfNeeded(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> [String: String] {
+        let overrides = processEnvironmentOverrides(
+            environment: environment,
+            arguments: arguments)
+        for (key, value) in overrides {
+            setenv(key, value, 1)
+        }
+        return overrides
+    }
+
     static func codexHomeDirectory(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         arguments: [String] = ProcessInfo.processInfo.arguments

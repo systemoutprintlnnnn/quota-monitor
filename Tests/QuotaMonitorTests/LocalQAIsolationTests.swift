@@ -74,6 +74,55 @@ struct LocalQAIsolationTests {
             arguments: ["QuotaMonitor"]) == true)
     }
 
+    @Test("Launch config prepares process environment overrides")
+    func launchConfigPreparesProcessEnvironmentOverrides() {
+        let arguments = inlineConfigArguments(home: "/tmp/qm-qa-home")
+
+        let overrides = LocalQAEnvironment.processEnvironmentOverrides(
+            environment: ["HOME": "/Users/real-user"],
+            arguments: arguments)
+
+        #expect(overrides["HOME"] == "/tmp/qm-qa-home")
+        #expect(overrides["CODEX_HOME"] == "/tmp/qm-qa-home/.codex")
+    }
+
+    @Test("QA settings snapshot reads the isolated defaults suite")
+    func qaSettingsSnapshotReadsIsolatedDefaultsSuite() throws {
+        let suiteName = "dev.tjzhou.QuotaMonitor.QATest.\(UUID().uuidString)"
+        let json = #"{"mode":true,"home":"/tmp/qm-qa-settings","defaultsSuite":"\#(suiteName)"}"#
+        let arguments = [
+            "QuotaMonitor",
+            "--quotamonitor-qa-config-base64",
+            Data(json.utf8).base64EncodedString()
+        ]
+        let defaults = try #require(LocalQAEnvironment.userDefaults(
+            environment: [:],
+            arguments: arguments))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["claude"], forKey: "settings.enabledProviders")
+        defaults.set(900, forKey: "settings.pollIntervalSeconds")
+        defaults.set(true, forKey: "onboarding.providersDone")
+
+        let snap = SettingsStore.snapshot(environment: [:], arguments: arguments)
+
+        #expect(snap.enabledProviders == ["claude"])
+        #expect(snap.pollIntervalSeconds == 900)
+        #expect(snap.hasCompletedProviderOnboarding)
+    }
+
+    @Test("QA launch disables pricing refreshes")
+    func qaLaunchDisablesPricingRefreshes() {
+        let arguments = inlineConfigArguments(home: "/tmp/qm-qa-pricing")
+
+        #expect(AppEnvironment.allowsPricingRefresh(
+            environment: [:],
+            arguments: arguments) == false)
+        #expect(AppEnvironment.allowsPricingRefresh(
+            environment: [:],
+            arguments: ["QuotaMonitor"]) == true)
+    }
+
     @Test("QA Claude credentials path stays under QA home")
     func qaClaudeCredentialsPathUsesQAHome() {
         let arguments = inlineConfigArguments(home: "/tmp/qm-qa-claude-home")

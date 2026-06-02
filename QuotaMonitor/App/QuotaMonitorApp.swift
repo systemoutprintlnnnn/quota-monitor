@@ -27,6 +27,7 @@ struct QuotaMonitorApp: App {
     @State private var updater: UpdaterController
 
     init() {
+        LocalQAEnvironment.applyProcessEnvironmentOverridesIfNeeded()
         // Migrate UserDefaults from the legacy `dev.tjzhou.CodexMonitor`
         // bundle id BEFORE the @Observable singletons below read their
         // persisted values. The State wrappers below are assigned in

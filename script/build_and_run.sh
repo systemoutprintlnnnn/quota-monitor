@@ -7,6 +7,8 @@ BUNDLE_ID="dev.tjzhou.QuotaMonitor"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${ROOT_DIR}/.build/${APP_NAME}.app"
 APP_BINARY="${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+# shellcheck source=../qa/lib/common.sh
+. "${ROOT_DIR}/qa/lib/common.sh"
 
 usage() {
     cat >&2 <<EOF
@@ -53,6 +55,16 @@ verify_process() {
     pgrep -x "$APP_NAME" >/dev/null
 }
 
+qa_launch_requests_quit() {
+    if [[ -n "${QUOTAMONITOR_QA_STEPS:-}" ]] \
+        && qm_steps_include_quit "$QUOTAMONITOR_QA_STEPS"; then
+        return 0
+    fi
+    [[ -f "${QUOTAMONITOR_QA_CONFIG:-}" ]] || return 1
+    /usr/bin/plutil -extract steps json -o - "$QUOTAMONITOR_QA_CONFIG" 2>/dev/null \
+        | grep -q '"quit"'
+}
+
 case "$MODE" in
     run)
         stop_running_app
@@ -92,7 +104,9 @@ case "$MODE" in
         build_app
         prepare_qa_launch_bundle
         open_app
-        verify_process
+        if ! qa_launch_requests_quit; then
+            verify_process
+        fi
         ;;
     *)
         usage
