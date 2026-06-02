@@ -34,6 +34,13 @@ Launch an isolated QA app and keep it open for Computer Use:
 ./qa/run-interactive.sh
 ```
 
+Launch an isolated QA app with a copied snapshot of the real QuotaMonitor
+SQLite database:
+
+```sh
+./qa/run-real-data-interactive.sh
+```
+
 Re-check a QA artifact directory:
 
 ```sh
@@ -166,3 +173,37 @@ directory, keeps the latest local build open, and prints a cleanup script path.
 
 Use this after `qa/run-all.sh` when the change needs a real UI walkthrough.
 See `docs/computer-qa.md` for the expected Computer Use checklist.
+
+## Real Data Shadow QA
+
+`qa/run-real-data-interactive.sh` is the opt-in path for checking how the latest
+local build renders the user's real historical QuotaMonitor data without
+letting the app touch the original profile.
+
+The script:
+
+- computes a fingerprint for the source database,
+- copies the source database with SQLite backup into a temporary QA home,
+- launches the app with that temporary HOME, an isolated UserDefaults suite,
+  and `CODEX_HOME` inside the QA home,
+- does not copy real Codex or Claude credentials,
+- sets the QA defaults so Keychain policy is `never`,
+- verifies the app-reported database path points at the shadow copy,
+- computes the source database fingerprint again and writes
+  `real-data-protection.txt`.
+
+The default source is:
+
+```text
+~/Library/Application Support/QuotaMonitor/quotamonitor.sqlite
+```
+
+To test a different source database:
+
+```sh
+QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/run-real-data-interactive.sh
+```
+
+The app is expected to mutate only the shadow database under the QA home. The
+original database is treated as read-only input; if its fingerprint changes
+during the run, the script fails before reporting success.

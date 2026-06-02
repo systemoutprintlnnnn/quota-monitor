@@ -69,6 +69,48 @@ qm_app_artifacts_dir() {
     printf '%s\n' "$home/Library/Application Support/QuotaMonitor/QAArtifacts"
 }
 
+qm_default_real_database_path() {
+    local home="${1:-$HOME}"
+    printf '%s\n' "$home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
+}
+
+qm_file_fingerprint() {
+    local file="$1"
+    [[ -f "$file" ]] || {
+        echo "error: cannot fingerprint missing file: $file" >&2
+        return 1
+    }
+    stat -f 'size=%z mtime=%m inode=%i' "$file"
+    shasum -a 256 "$file" | awk '{ print "sha256="$1 }'
+}
+
+qm_sqlite_dot_quote() {
+    local value="$1"
+    value="${value//\"/\"\"}"
+    printf '"%s"' "$value"
+}
+
+qm_copy_sqlite_snapshot() {
+    local source="$1"
+    local destination="$2"
+
+    [[ -f "$source" ]] || {
+        echo "error: real-data source DB does not exist: $source" >&2
+        return 1
+    }
+    mkdir -p "$(dirname "$destination")"
+
+    local quoted_source quoted_destination
+    quoted_source="$(qm_sqlite_dot_quote "$source")"
+    quoted_destination="$(qm_sqlite_dot_quote "$destination")"
+    sqlite3 <<SQL
+.open --readonly $quoted_source
+.timeout 5000
+.backup $quoted_destination
+.quit
+SQL
+}
+
 qm_write_interactive_cleanup() {
     local cleanup_path="$1"
     local work_root="$2"
@@ -124,6 +166,42 @@ qm_write_computer_qa_brief() {
         printf '%s\n' '- Computer Use observations by area'
         printf '%s\n' '- Failures with screenshot or AX evidence'
         printf '%s\n' '- Untested areas and why'
+    } >"$brief_path"
+}
+
+qm_write_real_data_computer_qa_brief() {
+    local brief_path="$1"
+    local artifacts="$2"
+    local qa_home="$3"
+    local defaults_suite="$4"
+    local repo_root="$5"
+    local source_db="$6"
+    local shadow_db="$7"
+
+    mkdir -p "$(dirname "$brief_path")"
+    {
+        printf '# Real Data Shadow QA Brief\n\n'
+        printf 'Use this brief after launching the isolated app with a copied SQLite snapshot of real QuotaMonitor data.\n\n'
+        printf '%s\n' "- Repo: \`$repo_root\`"
+        printf '%s\n' "- Artifacts: \`$artifacts\`"
+        printf '%s\n' "- QA home: \`$qa_home\`"
+        printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
+        printf '%s\n' "- Source DB: \`$source_db\`"
+        printf '%s\n' "- Shadow DB: \`$shadow_db\`"
+        printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-interactive.sh\`"
+        printf 'The app is running against the shadow DB under the isolated QA home. The original DB path is never passed to the app.\n\n'
+        printf '## Data Boundary\n\n'
+        printf '%s\n' '- The source database was copied with a SQLite backup into the QA home before launch.'
+        printf '%s\n' '- Do not copy real Codex or Claude credentials into this profile.'
+        printf '%s\n' '- CODEX_HOME points at the QA home, not the real ~/.codex directory.'
+        printf '%s\n' '- Keychain policy is set to never, so the app should not request real Claude credentials.'
+        printf '%s\n\n' '- After QA, verify the source DB fingerprint did not change.'
+        printf '## Walkthrough\n\n'
+        printf '%s\n' '- Dashboard: verify real-data Forecast, Trends, Activity, and Composition render without blank primary panels.'
+        printf '%s\n' '- Sessions: search real session titles/models, switch sort modes, open details, and inspect token/cost/event rows.'
+        printf '%s\n' '- History: select populated days and inspect rollups plus per-session details.'
+        printf '%s\n' '- Settings: inspect General and Advanced controls, but do not run uninstall, export, reveal, updater, or pricing sync actions.'
+        printf '%s\n' '- Visual pass: note clipped text, overlapping controls, blank charts, missing icons, and mixed-language formatting.'
     } >"$brief_path"
 }
 
@@ -332,6 +410,89 @@ qm_assert_artifact_contract() {
             fi
             [[ -f "$ax_warning" ]] || {
                 echo "error: expected windows missing from AX tree and no warning file was written" >&2
+                return 1
+            }
+        fi
+    fi
+}
+
+qm_assert_real_data_artifact_contract() {
+    local artifacts="$1"
+    local state="${artifacts}/app-state.json"
+    local db_counts="${artifacts}/db-counts.txt"
+    local dev_log="${artifacts}/quotamonitor-dev.log"
+    local protection="${artifacts}/real-data-protection.txt"
+    local screen="${artifacts}/screen.png"
+    local screen_warning="${artifacts}/screen-capture-warning.txt"
+    local ax_tree="${artifacts}/ax-tree.txt"
+    local ax_warning="${artifacts}/ax-dump-warning.txt"
+
+    [[ -f "$state" ]] || {
+        echo "error: missing app state: $state" >&2
+        return 1
+    }
+    plutil -convert json -o /dev/null "$state" >/dev/null
+
+    grep -Eq '"title"[[:space:]]*:[[:space:]]*"Quota Monitor"' "$state" || {
+        echo "error: dashboard window was not captured in real-data QA state" >&2
+        return 1
+    }
+    grep -Eq '"title"[[:space:]]*:[[:space:]]*"Settings"' "$state" || {
+        echo "error: settings window was not captured in real-data QA state" >&2
+        return 1
+    }
+    grep -q '"exercise-settings"' "$state" || {
+        echo "error: settings exercise step was not captured in real-data QA state" >&2
+        return 1
+    }
+
+    qm_assert_plutil_equals "$state" "settings.language" "en"
+    qm_assert_plutil_equals "$state" "settings.quotaDisplayMode" "remaining"
+    qm_assert_plutil_equals "$state" "settings.showDockIconForWindows" "false"
+    qm_assert_plutil_equals "$state" "settings.developerModeEnabled" "true"
+    qm_assert_plutil_equals "$state" "settings.pollIntervalSeconds" "900"
+
+    [[ -f "$db_counts" ]] || {
+        echo "error: missing real-data db-counts artifact: $db_counts" >&2
+        return 1
+    }
+    [[ "$(stat -f %z "$db_counts")" -gt 0 ]] || {
+        echo "error: real-data db-counts artifact is empty: $db_counts" >&2
+        return 1
+    }
+
+    [[ -f "$dev_log" ]] || {
+        echo "error: missing Developer Mode log artifact: $dev_log" >&2
+        return 1
+    }
+    grep -q '"event":"qa.settings.exercise"' "$dev_log" || {
+        echo "error: settings exercise event missing from real-data Developer Mode log" >&2
+        return 1
+    }
+    grep -q '"event":"qa.snapshot.write"' "$dev_log" || {
+        echo "error: snapshot write event missing from real-data Developer Mode log" >&2
+        return 1
+    }
+
+    [[ -f "$protection" ]] || {
+        echo "error: missing real-data protection artifact: $protection" >&2
+        return 1
+    }
+    grep -q '^source_unchanged=true$' "$protection" || {
+        echo "error: real-data source DB protection check did not pass" >&2
+        return 1
+    }
+
+    qm_assert_nonempty_file_or_warning "$screen" "$screen_warning" "screen capture"
+    qm_assert_nonempty_file_or_warning "$ax_tree" "$ax_warning" "AX tree"
+    if [[ -f "$ax_tree" ]]; then
+        if ! qm_ax_snapshot_has_expected_windows "$ax_tree"; then
+            if [[ "${QM_QA_REQUIRE_AX:-0}" == "1" ]]; then
+                echo "error: expected windows missing from real-data AX tree" >&2
+                return 1
+            fi
+            [[ -f "$ax_warning" ]] || {
+                echo "error: expected windows missing from real-data AX tree and no warning file was written" >&2
                 return 1
             }
         fi

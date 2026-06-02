@@ -15,5 +15,9 @@ if [[ $# -ne 1 ]]; then
 fi
 
 qm_require_command plutil
-qm_assert_artifact_contract "$1"
+if [[ -f "$1/real-data-protection.txt" ]]; then
+    qm_assert_real_data_artifact_contract "$1"
+else
+    qm_assert_artifact_contract "$1"
+fi
 echo "QA artifact contract ok: $1"

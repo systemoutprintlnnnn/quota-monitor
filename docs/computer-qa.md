@@ -38,6 +38,20 @@ script copies that snapshot into the printed artifact directory, so Computer
 Use can inspect repo-local artifacts without making the app write directly to
 repo or external-volume paths.
 
+When the question is "does the latest app render my real historical data
+correctly?", launch the real-data shadow mode instead:
+
+```sh
+./qa/run-real-data-interactive.sh
+```
+
+This still uses an isolated QA profile. It copies the real QuotaMonitor SQLite
+database into the QA home with SQLite backup, points the app at that copy, does
+not copy real Codex or Claude credentials, and writes
+`real-data-protection.txt` to prove the source database fingerprint did not
+change. Use this mode for visual checks that need realistic charts, sessions,
+history, and model distribution.
+
 To re-check an artifact directory later:
 
 ```sh
@@ -71,6 +85,11 @@ Computer Use owns user-facing operability:
 
 Do not use real Codex or Claude credentials during this pass. The interactive
 QA app is already configured with fixture data and an isolated profile.
+
+For real-data shadow QA, the data is real but the profile is still isolated.
+Treat the source database path as read-only evidence and avoid any Computer Use
+actions that reveal files, export CSV, sync pricing, check for updates, or run
+uninstall unless the user explicitly approves that exact action.
 
 Ask before destructive or external-side-effect UI actions, including uninstall,
 deleting files, changing system settings, accepting permission prompts, or

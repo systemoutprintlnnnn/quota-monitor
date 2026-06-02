@@ -316,6 +316,101 @@ test_warns_when_ax_snapshot_is_incomplete() {
         || fail "AX warning did not explain incomplete window capture"
 }
 
+test_copy_sqlite_snapshot_preserves_source() {
+    local dir source copy before after source_count copy_count
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-db-shadow.XXXXXX")"
+    source="$dir/source.sqlite"
+    copy="$dir/shadow/quotamonitor.sqlite"
+    trap 'rm -rf "$dir"' RETURN
+
+    sqlite3 "$source" <<'SQL'
+CREATE TABLE sessions (id TEXT PRIMARY KEY);
+INSERT INTO sessions (id) VALUES ('real-session');
+SQL
+
+    before="$(qm_file_fingerprint "$source")"
+    qm_copy_sqlite_snapshot "$source" "$copy"
+    after="$(qm_file_fingerprint "$source")"
+
+    [[ "$before" == "$after" ]] || fail "source DB fingerprint changed"
+    assert_file "$copy"
+    source_count="$(sqlite3 "$source" 'SELECT COUNT(*) FROM sessions;')"
+    copy_count="$(sqlite3 "$copy" 'SELECT COUNT(*) FROM sessions;')"
+    [[ "$source_count" == "1" ]] || fail "source DB count changed: $source_count"
+    [[ "$copy_count" == "1" ]] || fail "shadow DB did not receive copied rows: $copy_count"
+}
+
+test_write_real_data_computer_qa_brief_documents_shadow_boundary() {
+    local dir brief
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-data-qa-brief.XXXXXX")"
+    brief="$dir/computer-use-qa.md"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_real_data_computer_qa_brief \
+        "$brief" \
+        "$dir/artifacts" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.RealDataQA.Test" \
+        "/Volumes/SamsungDisk/Code/quota-monitor" \
+        "$HOME/Library/Application Support/QuotaMonitor/quotamonitor.sqlite" \
+        "$dir/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
+
+    assert_file "$brief"
+    grep -q 'Real Data Shadow QA Brief' "$brief" \
+        || fail "real-data brief title missing"
+    grep -q 'copied SQLite snapshot' "$brief" \
+        || fail "real-data brief does not explain DB shadow copy"
+    grep -q 'Do not copy real Codex or Claude credentials' "$brief" \
+        || fail "real-data brief credential boundary missing"
+    grep -q 'source DB fingerprint' "$brief" \
+        || fail "real-data brief source protection check missing"
+}
+
+test_assert_real_data_artifact_contract() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-data-artifacts.XXXXXX")"
+    trap 'rm -rf "$dir"' RETURN
+
+    cat >"$dir/app-state.json" <<'JSON'
+{
+  "bundleIdentifier": "dev.tjzhou.QuotaMonitor",
+  "databasePath": "/tmp/qm-shadow/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite",
+  "developerLogPath": "/tmp/qm-shadow/home/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log",
+  "generatedAt": "2026-06-02T00:00:00Z",
+  "pid": 123,
+  "qaSteps": ["open-dashboard", "open-settings", "exercise-settings", "snapshot"],
+  "settings": {
+    "developerModeEnabled": true,
+    "enabledProviders": ["claude"],
+    "language": "en",
+    "menuBarIconProviders": ["claude"],
+    "pollIntervalSeconds": 900,
+    "quotaDisplayMode": "remaining",
+    "showDockIconForWindows": false
+  },
+  "statusItemVisibility": "visible",
+  "windows": [
+    {"identifier": "dashboard", "isKeyWindow": false, "isVisible": true, "title": "Quota Monitor"},
+    {"identifier": "settings", "isKeyWindow": true, "isVisible": true, "title": "Settings"}
+  ]
+}
+JSON
+    cat >"$dir/db-counts.txt" <<'TEXT'
+provider  sessions
+--------  --------
+claude    10
+TEXT
+    {
+        printf '{"event":"qa.settings.exercise","result":"success"}\n'
+        printf '{"event":"qa.snapshot.write","result":"success"}\n'
+    } >"$dir/quotamonitor-dev.log"
+    printf 'PNGDATA' >"$dir/screen.png"
+    printf 'Window: Quota Monitor\nWindow: Settings\n' >"$dir/ax-tree.txt"
+    printf 'source_unchanged=true\n' >"$dir/real-data-protection.txt"
+
+    qm_assert_real_data_artifact_contract "$dir"
+}
+
 test_write_defaults
 test_seed_fixtures
 test_write_launch_config
@@ -328,4 +423,7 @@ test_write_interactive_cleanup_script
 test_assert_artifact_contract
 test_assert_artifact_contract_allows_incomplete_ax_with_warning
 test_warns_when_ax_snapshot_is_incomplete
+test_copy_sqlite_snapshot_preserves_source
+test_write_real_data_computer_qa_brief_documents_shadow_boundary
+test_assert_real_data_artifact_contract
 echo "common_tests: ok"
