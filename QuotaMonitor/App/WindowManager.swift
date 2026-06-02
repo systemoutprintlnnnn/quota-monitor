@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// AppKit-owned window management. Replaces the SwiftUI `Window(id:)` scenes +
@@ -33,6 +34,10 @@ final class WindowManager {
 
     func configure(updater: UpdaterController) {
         self.updater = updater
+        // Arm the language-switch title refresh. Called exactly once at launch
+        // (AppDelegate), before any window opens, so every later `set(_:)` is
+        // observed (see `applyTitlesAndObserve`).
+        applyTitlesAndObserve()
     }
 
     /// Open — or bring forward — the window for `id`.
@@ -92,6 +97,43 @@ final class WindowManager {
         !(needsOnboarding || needsProvider)
     }
 
+    // MARK: - localized titles
+
+    /// The window-chrome title for `id`, in the *current* language. The single
+    /// source for both initial construction (`makeController`) and the
+    /// language-switch refresh (`applyTitlesAndObserve`). The dashboard title is
+    /// the product name (not localized); the other three read `L10n`.
+    static func windowTitle(for id: String) -> String {
+        switch id {
+        case "dashboard": return "Quota Monitor"
+        case "settings": return L10n.settingsWindowTitle
+        case "onboarding": return L10n.onboardingWindowTitle
+        case "menubar-help": return L10n.menuBarHelpWindowTitle
+        default: return ""
+        }
+    }
+
+    /// Re-apply every open window's title and re-arm Observation. `HostedWindow`
+    /// remounts the SwiftUI *content* on a language switch via
+    /// `.id(loc.tickForceRedraw)`, but `NSWindow.title` is AppKit chrome outside
+    /// that hosted tree — nothing else refreshes it, so the title bar would keep
+    /// the old language until the window is closed and rebuilt. Reading
+    /// `tickForceRedraw` inside the tracking closure makes `set(_:)` fire
+    /// `onChange`; the work is deferred to the next runloop tick so it runs after
+    /// `L10n`'s language byte has been updated. Mirrors
+    /// `StatusItemController.renderAndObserve`. Observation is one-shot, so we
+    /// re-arm on every change.
+    private func applyTitlesAndObserve() {
+        withObservationTracking {
+            _ = LocalizationStore.shared.tickForceRedraw
+            for (id, controller) in controllers {
+                controller.window?.title = Self.windowTitle(for: id)
+            }
+        } onChange: {
+            Task { @MainActor [weak self] in self?.applyTitlesAndObserve() }
+        }
+    }
+
     // MARK: - construction
 
     private func makeController(id: String) -> AppWindowController {
@@ -106,7 +148,7 @@ final class WindowManager {
             root = AnyView(HostedWindow(content: MainWindowView())
                 .environment(env).environment(loc).environment(settings))
             config = WindowConfig(
-                title: "Quota Monitor", resizable: true,
+                resizable: true,
                 initialContentSize: NSSize(width: 980, height: 680),
                 minContentSize: NSSize(width: 820, height: 560),
                 autosaveName: "QuotaMonitor.dashboard", centerOnOpen: false)
@@ -115,7 +157,7 @@ final class WindowManager {
                 .environment(env).environment(loc).environment(settings)
                 .environment(updater))
             config = WindowConfig(
-                title: L10n.settingsWindowTitle, resizable: true,
+                resizable: true,
                 initialContentSize: NSSize(width: 620, height: 520),
                 minContentSize: NSSize(width: 480, height: 380),
                 // Autosave so the user's resized/moved frame survives reopen;
@@ -125,21 +167,21 @@ final class WindowManager {
             root = AnyView(HostedWindow(content: OnboardingView())
                 .environment(env).environment(loc).environment(settings))
             config = WindowConfig(
-                title: L10n.onboardingWindowTitle, resizable: false,
+                resizable: false,
                 initialContentSize: nil, minContentSize: nil,
                 autosaveName: nil, centerOnOpen: true)
         case "menubar-help":
             root = AnyView(HostedWindow(content: MenuBarHelpView())
                 .environment(env).environment(loc).environment(settings))
             config = WindowConfig(
-                title: L10n.menuBarHelpWindowTitle, resizable: false,
+                resizable: false,
                 initialContentSize: nil, minContentSize: nil,
                 autosaveName: nil, centerOnOpen: true)
         default:
             // Unknown id — should never happen. Build an empty window so a
             // routing bug surfaces visibly rather than crashing.
             root = AnyView(EmptyView())
-            config = WindowConfig(title: "", resizable: false,
+            config = WindowConfig(resizable: false,
                                   initialContentSize: nil, minContentSize: nil,
                                   autosaveName: nil, centerOnOpen: true)
         }
@@ -155,7 +197,7 @@ final class WindowManager {
 
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = style
-        window.title = config.title
+        window.title = Self.windowTitle(for: id)
         window.identifier = NSUserInterfaceItemIdentifier(id)
         window.isReleasedWhenClosed = false   // the controller owns the window
         if let minSize = config.minContentSize { window.contentMinSize = minSize }
@@ -172,7 +214,6 @@ final class WindowManager {
     }
 
     private struct WindowConfig {
-        let title: String
         let resizable: Bool
         let initialContentSize: NSSize?
         let minContentSize: NSSize?
