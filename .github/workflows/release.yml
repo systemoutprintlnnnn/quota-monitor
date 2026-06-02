@@ -307,9 +307,9 @@ jobs:
         # codex-monitor's main is unprotected, so the signed entry is
         # pushed straight to its feed (no PR gate). The signature was
         # computed over the exact published DMG, so the feed is correct by
-        # construction. appcast-insert.py is idempotent and seeds the first
-        # entry into the empty channel, so re-runs and first releases are
-        # both safe.
+        # construction. appcast-insert.py is idempotent and synthesizes a
+        # minimal feed when codex-monitor has no appcast.xml yet, so re-runs
+        # and first releases (even into a bare repo) are both safe.
         if: ${{ steps.appcast.outputs.skip == 'false' }}
         env:
           GH_TOKEN: ${{ secrets.CODEX_MONITOR_PAT }}
@@ -321,11 +321,16 @@ jobs:
             "https://x-access-token:${GH_TOKEN}@github.com/systemoutprintlnnnn/codex-monitor.git" \
             "${WORK}"
           python3 tools/appcast-insert.py "${ITEM_FILE}" "${WORK}/appcast.xml"
-          if git -C "${WORK}" diff --quiet -- appcast.xml; then
+          # Stage first so a freshly-synthesized (previously untracked)
+          # appcast.xml is detected and committed — `git diff` and `commit -am`
+          # both ignore untracked files, which would silently drop a first
+          # release into a bare repo.
+          git -C "${WORK}" add appcast.xml
+          if git -C "${WORK}" diff --cached --quiet -- appcast.xml; then
             echo "codex-monitor appcast.xml already has ${VERSION}; nothing to push"
             exit 0
           fi
           git -C "${WORK}" config user.name "github-actions[bot]"
           git -C "${WORK}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "${WORK}" commit -am "appcast: v${VERSION}"
+          git -C "${WORK}" commit -m "appcast: v${VERSION}"
           git -C "${WORK}" push origin HEAD:main

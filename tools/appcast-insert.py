@@ -8,9 +8,10 @@ of the feed). Idempotent — if an <item> for the same sparkle:version is
 already present, it does nothing and exits 0, so re-running a release
 job can't create duplicate entries.
 
-If the feed has no <item> yet (a freshly-seeded appcast for a newly
-branded variant's first release), the item is inserted before
-</channel> instead, so the first release still produces a valid feed.
+If the feed has no <item> yet — or the target file doesn't exist at all
+(a newly branded variant whose repo has never hosted an appcast) — the
+item is inserted before </channel> (synthesizing a minimal channel when
+the file is absent), so the first release still produces a valid feed.
 
     tools/appcast-insert.py dist/appcast-item-0.2.28.xml appcast.xml
 
@@ -23,6 +24,21 @@ import pathlib
 import re
 import sys
 
+# Minimal valid Sparkle feed used when the target appcast.xml doesn't exist
+# yet (a newly branded repo's first release). Mirrors the committed
+# appcast.xml header; the indented </channel> gives the insert path below a
+# line-anchored anchor so the first <item> lands inside the channel.
+EMPTY_CHANNEL_FEED = (
+    '<?xml version="1.0" standalone="yes"?>\n'
+    '<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"\n'
+    '     xmlns:dc="http://purl.org/dc/elements/1.1/"\n'
+    '     version="2.0">\n'
+    "    <channel>\n"
+    "        <title>Auto-update feed</title>\n"
+    "    </channel>\n"
+    "</rss>\n"
+)
+
 
 def main() -> int:
     if len(sys.argv) != 3:
@@ -33,7 +49,11 @@ def main() -> int:
     appcast_path = pathlib.Path(sys.argv[2])
 
     item = item_path.read_text().rstrip("\n") + "\n"
-    feed = appcast_path.read_text()
+    # A brand-new branded repo may not host an appcast.xml yet. Treat a missing
+    # file as an empty channel so the first release still lands in a well-formed
+    # feed (via the </channel> fallback below), instead of dying with a raw
+    # FileNotFoundError traceback.
+    feed = appcast_path.read_text() if appcast_path.exists() else EMPTY_CHANNEL_FEED
 
     m = re.search(r"<sparkle:version>([^<]+)</sparkle:version>", item)
     if not m:
