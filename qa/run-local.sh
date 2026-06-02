@@ -19,6 +19,7 @@ STATE_JSON="${APP_ARTIFACTS}/app-state.json"
 DB_PATH="${QA_HOME}/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
 DEV_LOG="${QA_HOME}/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log"
 QA_CONFIG="${ARTIFACTS}/qa-config.json"
+BOUNDARY_MANIFEST="${ARTIFACTS}/qa-boundary.json"
 QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_default_steps)}"
 
 cleanup() {
@@ -42,6 +43,13 @@ qm_write_launch_config \
     "$APP_ARTIFACTS" \
     "$QA_STEPS" \
     "$CODEX_HOME"
+qm_write_boundary_manifest \
+    "$BOUNDARY_MANIFEST" \
+    "fixture" \
+    "$QA_HOME" \
+    "$DEFAULTS_SUITE" \
+    "$CODEX_HOME" \
+    "$APP_ARTIFACTS"
 plutil -convert json -o /dev/null "$QA_CONFIG" >/dev/null
 
 export QUOTAMONITOR_QA_CONFIG="$QA_CONFIG"

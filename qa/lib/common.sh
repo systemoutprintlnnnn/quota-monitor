@@ -159,10 +159,11 @@ qm_write_computer_qa_brief() {
         printf '%s\n' "- Artifacts: \`$artifacts\`"
         printf '%s\n' "- QA home: \`$qa_home\`"
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
+        printf '%s\n' "- Boundary manifest: \`$artifacts/qa-boundary.json\`"
         printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-interactive.sh\`"
         printf 'Do not use real Codex or Claude credentials. The app is running with fixture data, an isolated HOME, and an isolated UserDefaults suite.\n\n'
         printf '## Before Computer Use\n\n'
-        printf '1. Confirm `app-state.json`, `db-counts.txt`, `quotamonitor-dev.log`, `screen.png`, and `ax-tree.txt` exist in the artifact directory.\n'
+        printf '1. Confirm `qa-boundary.json`, `app-state.json`, `db-counts.txt`, `quotamonitor-dev.log`, `screen.png`, and `ax-tree.txt` exist in the artifact directory.\n'
         printf '2. Read `app-state.json` to identify currently open windows and the QA settings snapshot.\n'
         printf '3. Use Computer Use only for local UI reading/clicking. Ask before destructive UI actions such as uninstall, deleting files, changing system settings, or transmitting credentials.\n\n'
         printf '## Walkthrough\n\n'
@@ -201,6 +202,7 @@ qm_write_real_data_computer_qa_brief() {
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
         printf '%s\n' "- Source DB: \`$source_db\`"
         printf '%s\n' "- Shadow DB: \`$shadow_db\`"
+        printf '%s\n' "- Boundary manifest: \`$artifacts/qa-boundary.json\`"
         printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-interactive.sh\`"
         printf 'The app is running against the shadow DB under the isolated QA home. The original DB path is never passed to the app.\n\n'
         printf '## Data Boundary\n\n'
@@ -277,6 +279,90 @@ qm_write_launch_config() {
     } >"$config_path"
 }
 
+qm_write_boundary_manifest() {
+    local manifest_path="$1"
+    local mode="$2"
+    local qa_home="$3"
+    local defaults_suite="$4"
+    local codex_home="$5"
+    local app_artifacts="$6"
+    local source_db="${7:-}"
+    local shadow_db="${8:-}"
+    local db_policy="fixture-db"
+    if [[ "$mode" == "real-data-shadow" ]]; then
+        db_policy="shadow-copy"
+    fi
+
+    mkdir -p "$(dirname "$manifest_path")"
+    {
+        printf '{\n'
+        printf '  "schemaVersion": 1,\n'
+        printf '  "mode": '
+        qm_json_string "$mode"
+        printf ',\n'
+        printf '  "qaHome": '
+        qm_json_string "$qa_home"
+        printf ',\n'
+        printf '  "defaultsSuite": '
+        qm_json_string "$defaults_suite"
+        printf ',\n'
+        printf '  "codexHome": '
+        qm_json_string "$codex_home"
+        printf ',\n'
+        printf '  "appArtifactsDirectory": '
+        qm_json_string "$app_artifacts"
+        printf ',\n'
+        printf '  "liveExternalSourcesAllowed": false,\n'
+        printf '  "dataBoundary": {\n'
+        printf '    "appWrites": "qa-home-only",\n'
+        printf '    "quotaMonitorDatabase": '
+        qm_json_string "$db_policy"
+        printf ',\n'
+        printf '    "codexSource": "qa-codex-home",\n'
+        printf '    "claudeSource": "qa-home",\n'
+        printf '    "credentials": "not-copied"'
+        if [[ -n "$source_db" || -n "$shadow_db" ]]; then
+            printf ',\n'
+            printf '    "sourceDatabase": '
+            qm_json_string "$source_db"
+            printf ',\n'
+            printf '    "shadowDatabase": '
+            qm_json_string "$shadow_db"
+            printf '\n'
+        else
+            printf '\n'
+        fi
+        printf '  },\n'
+        printf '  "computerUsePolicy": {\n'
+        printf '    "allowed": [\n'
+        printf '      "read local UI",\n'
+        printf '      "navigate app windows",\n'
+        printf '      "toggle non-destructive QA settings",\n'
+        printf '      "inspect copied database rendering"\n'
+        printf '    ],\n'
+        printf '    "requiresApproval": [\n'
+        printf '      "uninstall",\n'
+        printf '      "export CSV",\n'
+        printf '      "reveal files",\n'
+        printf '      "sync pricing",\n'
+        printf '      "check for updates",\n'
+        printf '      "change system settings",\n'
+        printf '      "transmit credentials"\n'
+        printf '    ]\n'
+        printf '  },\n'
+        printf '  "forbiddenDeveloperEvents": [\n'
+        printf '    "appserver.*",\n'
+        printf '    "ratelimits.poll*",\n'
+        printf '    "claude_usage.poll*",\n'
+        printf '    "claude_credentials*",\n'
+        printf '    "claude_cli*",\n'
+        printf '    "pricing.refresh_if_stale.refresh",\n'
+        printf '    "pricing.litellm_refresh"\n'
+        printf '  ]\n'
+        printf '}\n'
+    } >"$manifest_path"
+}
+
 qm_launch_config_base64() {
     local config_path="$1"
     base64 <"$config_path" | tr -d '\n'
@@ -320,6 +406,68 @@ qm_assert_nonempty_file_or_warning() {
     }
 }
 
+qm_assert_boundary_manifest_contract() {
+    local artifacts="$1"
+    local expected_mode="$2"
+    local manifest="${artifacts}/qa-boundary.json"
+
+    [[ -f "$manifest" ]] || {
+        echo "error: missing QA boundary manifest: $manifest" >&2
+        return 1
+    }
+    plutil -convert json -o /dev/null "$manifest" >/dev/null
+    qm_assert_plutil_equals "$manifest" "schemaVersion" "1"
+    qm_assert_plutil_equals "$manifest" "mode" "$expected_mode"
+    qm_assert_plutil_equals "$manifest" "liveExternalSourcesAllowed" "false"
+    qm_assert_plutil_equals "$manifest" "dataBoundary.appWrites" "qa-home-only"
+    qm_assert_plutil_equals "$manifest" "dataBoundary.codexSource" "qa-codex-home"
+    qm_assert_plutil_equals "$manifest" "dataBoundary.claudeSource" "qa-home"
+    qm_assert_plutil_equals "$manifest" "dataBoundary.credentials" "not-copied"
+
+    local qa_home codex_home app_artifacts
+    qa_home="$(qm_plutil_raw qaHome "$manifest")"
+    codex_home="$(qm_plutil_raw codexHome "$manifest")"
+    app_artifacts="$(qm_plutil_raw appArtifactsDirectory "$manifest")"
+    [[ "$codex_home" == "$qa_home/"* ]] || {
+        echo "error: QA codexHome is outside qaHome: $codex_home" >&2
+        return 1
+    }
+    [[ "$app_artifacts" == "$qa_home/"* ]] || {
+        echo "error: QA appArtifactsDirectory is outside qaHome: $app_artifacts" >&2
+        return 1
+    }
+
+    grep -q '"uninstall"' "$manifest" || {
+        echo "error: Computer Use uninstall approval boundary missing" >&2
+        return 1
+    }
+    grep -q '"sync pricing"' "$manifest" || {
+        echo "error: Computer Use pricing approval boundary missing" >&2
+        return 1
+    }
+    grep -q '"pricing.litellm_refresh"' "$manifest" || {
+        echo "error: forbidden pricing event missing from boundary manifest" >&2
+        return 1
+    }
+
+    if [[ "$expected_mode" == "real-data-shadow" ]]; then
+        qm_assert_plutil_equals "$manifest" "dataBoundary.quotaMonitorDatabase" "shadow-copy"
+        local source_db shadow_db
+        source_db="$(qm_plutil_raw dataBoundary.sourceDatabase "$manifest")"
+        shadow_db="$(qm_plutil_raw dataBoundary.shadowDatabase "$manifest")"
+        [[ -n "$source_db" && -n "$shadow_db" && "$source_db" != "$shadow_db" ]] || {
+            echo "error: real-data boundary must define distinct source and shadow DBs" >&2
+            return 1
+        }
+        [[ "$shadow_db" == "$qa_home/"* ]] || {
+            echo "error: shadow DB is outside qaHome: $shadow_db" >&2
+            return 1
+        }
+    else
+        qm_assert_plutil_equals "$manifest" "dataBoundary.quotaMonitorDatabase" "fixture-db"
+    fi
+}
+
 qm_ax_snapshot_has_expected_windows() {
     local ax_tree="$1"
     [[ -f "$ax_tree" ]] || return 1
@@ -351,6 +499,8 @@ qm_assert_artifact_contract() {
     local screen_warning="${artifacts}/screen-capture-warning.txt"
     local ax_tree="${artifacts}/ax-tree.txt"
     local ax_warning="${artifacts}/ax-dump-warning.txt"
+
+    qm_assert_boundary_manifest_contract "$artifacts" "fixture"
 
     [[ -f "$state" ]] || {
         echo "error: missing app state: $state" >&2
@@ -441,6 +591,8 @@ qm_assert_real_data_artifact_contract() {
     local ax_tree="${artifacts}/ax-tree.txt"
     local ax_warning="${artifacts}/ax-dump-warning.txt"
 
+    qm_assert_boundary_manifest_contract "$artifacts" "real-data-shadow"
+
     [[ -f "$state" ]] || {
         echo "error: missing app state: $state" >&2
         return 1
@@ -488,6 +640,7 @@ qm_assert_real_data_artifact_contract() {
         return 1
     }
     qm_assert_no_external_data_source_events "$artifacts"
+    qm_assert_no_real_provider_paths_leaked "$artifacts"
 
     [[ -f "$protection" ]] || {
         echo "error: missing real-data protection artifact: $protection" >&2
@@ -523,6 +676,28 @@ qm_assert_no_external_data_source_events() {
         echo "error: QA run touched live external data sources" >&2
         return 1
     fi
+}
+
+qm_assert_no_real_provider_paths_leaked() {
+    local artifacts="$1"
+    local source_home="${QM_QA_REAL_SOURCE_HOME:-$HOME}"
+    local real_codex="${source_home}/.codex"
+    local real_claude="${source_home}/.claude"
+    local real_claude_config="${source_home}/.config/claude"
+    local file path
+
+    for file in \
+        "${artifacts}/app-state.json" \
+        "${artifacts}/qa-config.json" \
+        "${artifacts}/quotamonitor-dev.log"; do
+        [[ -f "$file" ]] || continue
+        for path in "$real_codex" "$real_claude" "$real_claude_config"; do
+            if grep -F "$path" "$file" >&2; then
+                echo "error: real provider path leaked into QA artifact: $path in $file" >&2
+                return 1
+            fi
+        done
+    done
 }
 
 qm_retry_until() {

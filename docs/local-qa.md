@@ -121,6 +121,9 @@ Each `qa/run-local.sh` run prints an artifact directory under
 
 - `app-state.json` — app-reported PID, bundle id, database/log paths, visible
   windows, status-item visibility, settings snapshot, and menu-bar totals.
+- `qa-boundary.json` — machine-readable QA boundary contract: fixture vs
+  real-data-shadow mode, QA write roots, disabled external data sources, and
+  Computer Use actions that require explicit approval.
 - `db-counts.txt` — provider/session/event/rate-limit counts read from the
   isolated SQLite database.
 - `qa-config.json` — launch config passed to the app.
@@ -130,6 +133,9 @@ Each `qa/run-local.sh` run prints an artifact directory under
 
 Before `qa/run-local.sh` succeeds, it asserts the artifact contract:
 
+- `qa-boundary.json` exists, is valid JSON, matches the expected QA mode, keeps
+  app writes under the QA home, disables live external sources, and documents
+  Computer Use approval boundaries.
 - `app-state.json` is valid JSON and contains Dashboard and Settings windows.
 - `app-state.json` includes the `exercise-settings` step and the expected
   settings snapshot.
@@ -209,6 +215,11 @@ QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/run-real-data-interactive.s
 The app is expected to mutate only the shadow database under the QA home. The
 original database is treated as read-only input; if its fingerprint changes
 during the run, the script fails before reporting success.
+
+Real-data artifact checks also reject app-side artifacts that contain expanded
+real provider paths such as `~/.codex`, `~/.claude`, or `~/.config/claude`.
+Those paths can appear in human-facing docs as examples, but not in
+`app-state.json`, `qa-config.json`, or `quotamonitor-dev.log`.
 
 Artifact checks also reject Developer Mode logs that show live external-source
 activity (`appserver.*`, `ratelimits.poll*`, `claude_usage.poll*`,

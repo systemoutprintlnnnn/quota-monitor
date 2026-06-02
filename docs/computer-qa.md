@@ -38,6 +38,11 @@ script copies that snapshot into the printed artifact directory, so Computer
 Use can inspect repo-local artifacts without making the app write directly to
 repo or external-volume paths.
 
+Every run also writes `qa-boundary.json`. Treat it as the source of truth for
+the current test boundary: fixture vs real-data-shadow mode, QA-only write
+roots, disabled live external sources, and UI actions that require explicit
+approval before Computer Use can click them.
+
 When the question is "does the latest app render my real historical data
 correctly?", launch the real-data shadow mode instead:
 
@@ -66,6 +71,7 @@ reading:
 - the app launches as a macOS `.app` bundle,
 - Dashboard, Settings, menu-bar help, and the popover can be opened,
 - fixture Codex and Claude data import into isolated SQLite,
+- `qa-boundary.json` documents and passes the expected boundary contract,
 - Developer Mode writes the expected QA events,
 - the settings exercise applies the expected state,
 - screenshot and AX artifacts exist or record a permission warning.

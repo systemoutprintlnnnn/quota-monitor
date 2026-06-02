@@ -72,6 +72,50 @@ test_write_launch_config() {
     grep -q '"quit"' "$config" || fail "quit QA step missing from launch config"
 }
 
+test_write_boundary_manifest_documents_fixture_policy() {
+    local dir manifest
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-qa-boundary.XXXXXX")"
+    manifest="$dir/qa-boundary.json"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_boundary_manifest \
+        "$manifest" \
+        "fixture" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "$dir/home/.codex" \
+        "$dir/home/Library/Application Support/QuotaMonitor/QAArtifacts"
+
+    assert_file "$manifest"
+    plutil -convert json -o /dev/null "$manifest" >/dev/null
+    qm_assert_plutil_equals "$manifest" "mode" "fixture"
+    qm_assert_plutil_equals "$manifest" "liveExternalSourcesAllowed" "false"
+    qm_assert_plutil_equals "$manifest" "dataBoundary.quotaMonitorDatabase" "fixture-db"
+    grep -q '"pricing.litellm_refresh"' "$manifest" \
+        || fail "pricing live source guard missing from boundary manifest"
+    grep -q '"sync pricing"' "$manifest" \
+        || fail "Computer Use pricing approval boundary missing from manifest"
+}
+
+test_assert_boundary_manifest_contract_rejects_wrong_mode() {
+    local dir manifest
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-qa-boundary-wrong-mode.XXXXXX")"
+    manifest="$dir/qa-boundary.json"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_boundary_manifest \
+        "$manifest" \
+        "fixture" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "$dir/home/.codex" \
+        "$dir/home/Library/Application Support/QuotaMonitor/QAArtifacts"
+
+    if qm_assert_boundary_manifest_contract "$dir" "real-data-shadow" >/dev/null 2>&1; then
+        fail "boundary manifest with wrong mode was accepted"
+    fi
+}
+
 test_launch_config_base64() {
     local dir config encoded decoded
     dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-qa-config-b64.XXXXXX")"
@@ -246,6 +290,13 @@ TEXT
     } >"$dir/quotamonitor-dev.log"
     printf 'PNGDATA' >"$dir/screen.png"
     printf 'Window: Quota Monitor\nWindow: Settings\n' >"$dir/ax-tree.txt"
+    qm_write_boundary_manifest \
+        "$dir/qa-boundary.json" \
+        "fixture" \
+        "/tmp/qm" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "/tmp/qm/.codex" \
+        "/tmp/qm/Library/Application Support/QuotaMonitor/QAArtifacts"
 
     qm_assert_artifact_contract "$dir"
 }
@@ -308,6 +359,13 @@ TEXT
     printf 'PNGDATA' >"$dir/screen.png"
     printf '# QuotaMonitor AX snapshot\nfrontmost=false\n' >"$dir/ax-tree.txt"
     printf 'AX snapshot did not expose expected windows.\n' >"$dir/ax-dump-warning.txt"
+    qm_write_boundary_manifest \
+        "$dir/qa-boundary.json" \
+        "fixture" \
+        "/tmp/qm" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "/tmp/qm/.codex" \
+        "/tmp/qm/Library/Application Support/QuotaMonitor/QAArtifacts"
 
     qm_assert_artifact_contract "$dir"
 }
@@ -417,8 +475,30 @@ TEXT
     printf 'PNGDATA' >"$dir/screen.png"
     printf 'Window: Quota Monitor\nWindow: Settings\n' >"$dir/ax-tree.txt"
     printf 'source_unchanged=true\n' >"$dir/real-data-protection.txt"
+    qm_write_boundary_manifest \
+        "$dir/qa-boundary.json" \
+        "real-data-shadow" \
+        "/tmp/qm-shadow/home" \
+        "dev.tjzhou.QuotaMonitor.RealDataQA.Test" \
+        "/tmp/qm-shadow/home/.codex" \
+        "/tmp/qm-shadow/home/Library/Application Support/QuotaMonitor/QAArtifacts" \
+        "/Users/example/Library/Application Support/QuotaMonitor/quotamonitor.sqlite" \
+        "/tmp/qm-shadow/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
 
     qm_assert_real_data_artifact_contract "$dir"
+}
+
+test_rejects_real_provider_path_leak() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-provider-leak.XXXXXX")"
+    trap 'rm -rf "$dir"' RETURN
+
+    printf '{"codexHome":"/Users/example/.codex"}\n' >"$dir/app-state.json"
+
+    if QM_QA_REAL_SOURCE_HOME="/Users/example" \
+        qm_assert_no_real_provider_paths_leaked "$dir" >/dev/null 2>&1; then
+        fail "real provider path leak was accepted"
+    fi
 }
 
 test_rejects_external_data_source_events() {
@@ -452,6 +532,8 @@ test_rejects_live_pricing_refresh_events() {
 test_write_defaults
 test_seed_fixtures
 test_write_launch_config
+test_write_boundary_manifest_documents_fixture_policy
+test_assert_boundary_manifest_contract_rejects_wrong_mode
 test_launch_config_base64
 test_default_steps_include_settings_exercise
 test_interactive_steps_are_safe_for_computer_use
@@ -465,6 +547,7 @@ test_warns_when_ax_snapshot_is_incomplete
 test_copy_sqlite_snapshot_preserves_source
 test_write_real_data_computer_qa_brief_documents_shadow_boundary
 test_assert_real_data_artifact_contract
+test_rejects_real_provider_path_leak
 test_rejects_external_data_source_events
 test_rejects_live_pricing_refresh_events
 echo "common_tests: ok"
