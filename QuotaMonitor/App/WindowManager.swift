@@ -73,13 +73,18 @@ final class WindowManager {
     }
 
     /// Whether any app-owned window is currently on screen, excluding `ids`.
-    /// Replaces `AppEnvironment.hasVisibleAppWindow`'s `NSPanel`/classname
-    /// heuristics: we own exactly these plain `NSWindow`s, so there is nothing
-    /// to guess about.
+    /// Covers the four `WindowManager` windows via this registry (replacing
+    /// `hasVisibleAppWindow`'s old `NSPanel`/classname heuristics) **plus** the
+    /// Sparkle update window, which is app-owned but lives outside the registry
+    /// (in `UpdateWindowController`). That window is a real titled window that
+    /// needs Dock / Cmd-Tab presence, so it must count too — otherwise closing
+    /// the last registry window while an update is showing demotes the app to
+    /// `.accessory` out from under the updater.
     func hasVisibleWindow(excluding ids: Set<String> = []) -> Bool {
-        controllers.contains { id, controller in
+        let managedVisible = controllers.contains { id, controller in
             !ids.contains(id) && (controller.window?.isVisible ?? false)
         }
+        return managedVisible || (updater?.isUpdateWindowVisible ?? false)
     }
 
     /// Called from `AppWindowController.windowWillClose`. Demote back to
