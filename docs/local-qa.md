@@ -188,6 +188,8 @@ The script:
   and `CODEX_HOME` inside the QA home,
 - does not copy real Codex or Claude credentials,
 - sets the QA defaults so Keychain policy is `never`,
+- disables live Codex app-server and Claude OAuth polling while QA mode is
+  active,
 - verifies the app-reported database path points at the shadow copy,
 - computes the source database fingerprint again and writes
   `real-data-protection.txt`.
@@ -207,3 +209,9 @@ QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/run-real-data-interactive.s
 The app is expected to mutate only the shadow database under the QA home. The
 original database is treated as read-only input; if its fingerprint changes
 during the run, the script fails before reporting success.
+
+Artifact checks also reject Developer Mode logs that show live Codex/Claude data
+source activity (`appserver.*`, `ratelimits.poll*`, `claude_usage.poll*`,
+`claude_credentials*`, or `claude_cli*`). Real-data shadow QA is for rendering
+and manual UI verification against a copied database, not for refreshing real
+provider quota state.

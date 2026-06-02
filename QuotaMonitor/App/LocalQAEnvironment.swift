@@ -109,6 +109,13 @@ enum LocalQAEnvironment {
             .appendingPathComponent(".codex", isDirectory: true)
     }
 
+    static func allowsExternalDataSources(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        !isActive(environment: environment, arguments: arguments)
+    }
+
     private static func activeConfiguration(
         environment: [String: String],
         arguments: [String]

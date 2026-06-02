@@ -411,6 +411,18 @@ TEXT
     qm_assert_real_data_artifact_contract "$dir"
 }
 
+test_rejects_external_data_source_events() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-live-source-artifacts.XXXXXX")"
+    trap 'rm -rf "$dir"' RETURN
+
+    printf '{"event":"appserver.launch","result":"success"}\n' >"$dir/quotamonitor-dev.log"
+
+    if qm_assert_no_external_data_source_events "$dir" >/dev/null 2>&1; then
+        fail "external data source event was accepted"
+    fi
+}
+
 test_write_defaults
 test_seed_fixtures
 test_write_launch_config
@@ -426,4 +438,5 @@ test_warns_when_ax_snapshot_is_incomplete
 test_copy_sqlite_snapshot_preserves_source
 test_write_real_data_computer_qa_brief_documents_shadow_boundary
 test_assert_real_data_artifact_contract
+test_rejects_external_data_source_events
 echo "common_tests: ok"

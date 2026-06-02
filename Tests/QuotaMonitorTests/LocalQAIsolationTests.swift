@@ -13,6 +13,13 @@ struct LocalQAIsolationTests {
         return url
     }
 
+    private func inlineConfigArguments(home: String, codexHome: String? = nil) -> [String] {
+        let codexHomeEntry = codexHome.map { #","codexHome":"\#($0)""# } ?? ""
+        let json = #"{"mode":true,"home":"\#(home)"\#(codexHomeEntry)}"#
+        let encoded = Data(json.utf8).base64EncodedString()
+        return ["QuotaMonitor", "--quotamonitor-qa-config-base64", encoded]
+    }
+
     @Test("QA home redirects application support into the harness profile")
     func qaHomeRedirectsApplicationSupport() throws {
         let dir = LocalQAEnvironment.applicationSupportDirectory(environment: [
@@ -53,5 +60,48 @@ struct LocalQAIsolationTests {
         #expect(LocalQAEnvironment.homeDirectory(environment: [:], arguments: arguments).path == "/tmp/qm-qa-config-home")
         #expect(LocalQAEnvironment.applicationSupportDirectory(environment: [:], arguments: arguments).path == "/tmp/qm-qa-config-home/Library/Application Support")
         #expect(LocalQAEnvironment.codexHomeDirectory(environment: [:], arguments: arguments)?.path == "/tmp/qm-qa-config-home/.codex")
+    }
+
+    @Test("Launch config disables external data sources")
+    func launchConfigDisablesExternalDataSources() {
+        let arguments = inlineConfigArguments(home: "/tmp/qm-qa-data-sources")
+
+        #expect(LocalQAEnvironment.allowsExternalDataSources(
+            environment: [:],
+            arguments: arguments) == false)
+        #expect(LocalQAEnvironment.allowsExternalDataSources(
+            environment: [:],
+            arguments: ["QuotaMonitor"]) == true)
+    }
+
+    @Test("QA Claude credentials path stays under QA home")
+    func qaClaudeCredentialsPathUsesQAHome() {
+        let arguments = inlineConfigArguments(home: "/tmp/qm-qa-claude-home")
+
+        let path = ClaudeUsageClient.credentialsFilePath(
+            environment: ["HOME": "/Users/real-user"],
+            arguments: arguments)
+
+        #expect(path == "/tmp/qm-qa-claude-home/.claude/.credentials.json")
+    }
+
+    @Test("QA Codex child environment uses QA home and CODEX_HOME")
+    func qaCodexChildEnvironmentUsesQAHome() {
+        let arguments = inlineConfigArguments(
+            home: "/tmp/qm-qa-codex-home",
+            codexHome: "/tmp/qm-qa-codex-home/.codex")
+
+        let env = AppServerClient.augmentedEnvironment(
+            environment: [
+                "HOME": "/Users/real-user",
+                "PATH": "/usr/bin",
+                "SHELL": "/bin/zsh",
+            ],
+            arguments: arguments,
+            loginShellPath: nil)
+
+        #expect(env["HOME"] == "/tmp/qm-qa-codex-home")
+        #expect(env["CODEX_HOME"] == "/tmp/qm-qa-codex-home/.codex")
+        #expect(env["PATH"]?.contains("/tmp/qm-qa-codex-home/.npm-global/bin") == true)
     }
 }

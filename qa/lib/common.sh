@@ -399,6 +399,7 @@ qm_assert_artifact_contract() {
         echo "error: snapshot write event missing from Developer Mode log" >&2
         return 1
     }
+    qm_assert_no_external_data_source_events "$artifacts"
 
     qm_assert_nonempty_file_or_warning "$screen" "$screen_warning" "screen capture"
     qm_assert_nonempty_file_or_warning "$ax_tree" "$ax_warning" "AX tree"
@@ -473,6 +474,7 @@ qm_assert_real_data_artifact_contract() {
         echo "error: snapshot write event missing from real-data Developer Mode log" >&2
         return 1
     }
+    qm_assert_no_external_data_source_events "$artifacts"
 
     [[ -f "$protection" ]] || {
         echo "error: missing real-data protection artifact: $protection" >&2
@@ -496,6 +498,17 @@ qm_assert_real_data_artifact_contract() {
                 return 1
             }
         fi
+    fi
+}
+
+qm_assert_no_external_data_source_events() {
+    local artifacts="$1"
+    local dev_log="${artifacts}/quotamonitor-dev.log"
+    [[ -f "$dev_log" ]] || return 0
+
+    if grep -E '"event":"(appserver\.|ratelimits\.poll|claude_usage\.poll|claude_credentials|claude_cli)' "$dev_log" >&2; then
+        echo "error: QA run touched live Codex/Claude data sources" >&2
+        return 1
     fi
 }
 
