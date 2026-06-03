@@ -55,6 +55,11 @@ verify_process() {
     pgrep -x "$APP_NAME" >/dev/null
 }
 
+verify_qa_process() {
+    sleep 2
+    qm_local_qa_process_running
+}
+
 qa_launch_requests_quit() {
     if [[ -n "${QUOTAMONITOR_QA_STEPS:-}" ]] \
         && qm_steps_include_quit "$QUOTAMONITOR_QA_STEPS"; then
@@ -100,12 +105,12 @@ case "$MODE" in
             echo "error: QA config not found: $QUOTAMONITOR_QA_CONFIG" >&2
             exit 1
         }
-        stop_running_app
+        qm_stop_local_qa_processes
         build_app
         prepare_qa_launch_bundle
         open_app
         if ! qa_launch_requests_quit; then
-            verify_process
+            verify_qa_process
         fi
         ;;
     *)

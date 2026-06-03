@@ -176,6 +176,9 @@ session, usage events for both providers, and Codex JSONL rate-limit samples.
 `qa/run-interactive.sh` uses the same isolated harness but does not clean up or
 quit the app. It writes a per-run `computer-use-qa.md` brief into the artifact
 directory, keeps the latest local build open, and prints a cleanup script path.
+The brief includes the exact `.app` path to pass to Computer Use; use that path
+instead of the bare `QuotaMonitor` app name so the agent does not attach to a
+separately installed copy.
 
 Use this after `qa/run-all.sh` when the change needs a real UI walkthrough.
 See `docs/computer-qa.md` for the expected Computer Use checklist.

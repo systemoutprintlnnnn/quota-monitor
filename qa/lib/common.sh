@@ -129,6 +129,7 @@ qm_write_interactive_cleanup() {
     local work_root="$2"
     local qa_home="$3"
     local defaults_suite="$4"
+    local state_json="${5:-}"
 
     mkdir -p "$(dirname "$cleanup_path")"
     {
@@ -137,11 +138,48 @@ qm_write_interactive_cleanup() {
         printf 'WORK_ROOT=%q\n' "$work_root"
         printf 'QA_HOME=%q\n' "$qa_home"
         printf 'DEFAULTS_SUITE=%q\n' "$defaults_suite"
-        printf 'pkill -x QuotaMonitor >/dev/null 2>&1 || true\n'
+        printf 'STATE_JSON=%q\n' "$state_json"
+        printf 'if [[ -f "$STATE_JSON" ]]; then\n'
+        printf '    pid="$(/usr/bin/plutil -extract pid raw "$STATE_JSON" 2>/dev/null || true)"\n'
+        printf '    if [[ "$pid" =~ ^[0-9]+$ ]] \\\n'
+        printf '        && /bin/ps -p "$pid" -o command= 2>/dev/null \\\n'
+        printf '            | /usr/bin/grep -q -- "--quotamonitor-qa-config"; then\n'
+        printf '        /bin/kill "$pid" >/dev/null 2>&1 || true\n'
+        printf '    fi\n'
+        printf 'fi\n'
+        printf '/usr/bin/pkill -f '"'"'[Q]uotaMonitor .*--quotamonitor-qa-config'"'"' >/dev/null 2>&1 || true\n'
         printf 'HOME="$QA_HOME" defaults delete "$DEFAULTS_SUITE" >/dev/null 2>&1 || true\n'
         printf 'rm -rf "$WORK_ROOT"\n'
     } >"$cleanup_path"
     chmod +x "$cleanup_path"
+}
+
+qm_stop_local_qa_processes() {
+    /usr/bin/pkill -f '[Q]uotaMonitor .*--quotamonitor-qa-config' >/dev/null 2>&1 || true
+}
+
+qm_stop_local_qa_process_from_state() {
+    local state_json="$1"
+    if [[ -f "$state_json" ]]; then
+        local pid command
+        pid="$(/usr/bin/plutil -extract pid raw "$state_json" 2>/dev/null || true)"
+        if [[ "$pid" =~ ^[0-9]+$ ]]; then
+            command="$(/bin/ps -p "$pid" -o command= 2>/dev/null || true)"
+            if [[ "$command" == *"--quotamonitor-qa-config"* ]]; then
+                /bin/kill "$pid" >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+    qm_stop_local_qa_processes
+}
+
+qm_local_qa_process_running() {
+    /usr/bin/pgrep -f '[Q]uotaMonitor .*--quotamonitor-qa-config' >/dev/null 2>&1
+}
+
+qm_computer_use_app_target() {
+    local repo_root="$1"
+    printf '%s\n' "${QUOTAMONITOR_QA_APP_BUNDLE:-${repo_root}/.build/QuotaMonitor.app}"
 }
 
 qm_write_computer_qa_brief() {
@@ -150,12 +188,15 @@ qm_write_computer_qa_brief() {
     local qa_home="$3"
     local defaults_suite="$4"
     local repo_root="$5"
+    local app_target
+    app_target="$(qm_computer_use_app_target "$repo_root")"
 
     mkdir -p "$(dirname "$brief_path")"
     {
         printf '# Computer Use QA Brief\n\n'
         printf 'Use this brief after the code-level QA harness has launched the isolated app.\n\n'
         printf '%s\n' "- Repo: \`$repo_root\`"
+        printf '%s\n' "- Computer Use app target: \`$app_target\`"
         printf '%s\n' "- Artifacts: \`$artifacts\`"
         printf '%s\n' "- QA home: \`$qa_home\`"
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
@@ -191,12 +232,15 @@ qm_write_real_data_computer_qa_brief() {
     local repo_root="$5"
     local source_db="$6"
     local shadow_db="$7"
+    local app_target
+    app_target="$(qm_computer_use_app_target "$repo_root")"
 
     mkdir -p "$(dirname "$brief_path")"
     {
         printf '# Real Data Shadow QA Brief\n\n'
         printf 'Use this brief after launching the isolated app with a copied SQLite snapshot of real QuotaMonitor data.\n\n'
         printf '%s\n' "- Repo: \`$repo_root\`"
+        printf '%s\n' "- Computer Use app target: \`$app_target\`"
         printf '%s\n' "- Artifacts: \`$artifacts\`"
         printf '%s\n' "- QA home: \`$qa_home\`"
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"

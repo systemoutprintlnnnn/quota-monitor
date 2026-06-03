@@ -23,7 +23,7 @@ BOUNDARY_MANIFEST="${ARTIFACTS}/qa-boundary.json"
 QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_default_steps)}"
 
 cleanup() {
-    pkill -x QuotaMonitor >/dev/null 2>&1 || true
+    qm_stop_local_qa_process_from_state "$STATE_JSON"
     HOME="$QA_HOME" defaults delete "$DEFAULTS_SUITE" >/dev/null 2>&1 || true
     if [[ -z "${QM_QA_KEEP_WORK_ROOT:-}" ]]; then
         rm -rf "$WORK_ROOT"

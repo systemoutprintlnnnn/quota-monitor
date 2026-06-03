@@ -225,12 +225,55 @@ test_write_interactive_cleanup_script() {
 
     assert_file "$cleanup"
     [[ -x "$cleanup" ]] || fail "cleanup script is not executable"
-    grep -q 'pkill -x QuotaMonitor' "$cleanup" \
-        || fail "cleanup script does not stop QuotaMonitor"
+    if grep -q 'pkill -x QuotaMonitor' "$cleanup"; then
+        fail "cleanup script must not stop non-QA QuotaMonitor processes"
+    fi
+    grep -q -- '--quotamonitor-qa-config' "$cleanup" \
+        || fail "cleanup script does not target QA-launched QuotaMonitor processes"
     grep -q 'defaults delete' "$cleanup" \
         || fail "cleanup script does not delete QA defaults"
     grep -q 'rm -rf' "$cleanup" \
         || fail "cleanup script does not remove the QA work root"
+}
+
+test_computer_qa_brief_includes_exact_app_target() {
+    local dir brief
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-target.XXXXXX")"
+    brief="$dir/computer-use-qa.md"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_computer_qa_brief \
+        "$brief" \
+        "$dir/artifacts" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "/Volumes/SamsungDisk/Code/quota-monitor"
+
+    grep -q 'Computer Use app target' "$brief" \
+        || fail "Computer Use app target missing from brief"
+    grep -q '/Volumes/SamsungDisk/Code/quota-monitor/.build/QuotaMonitor.app' "$brief" \
+        || fail "Computer Use brief must use the exact QA app path"
+}
+
+test_real_data_computer_qa_brief_includes_exact_app_target() {
+    local dir brief
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-data-qa-target.XXXXXX")"
+    brief="$dir/computer-use-qa.md"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_real_data_computer_qa_brief \
+        "$brief" \
+        "$dir/artifacts" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.RealDataQA.Test" \
+        "/Volumes/SamsungDisk/Code/quota-monitor" \
+        "$HOME/Library/Application Support/QuotaMonitor/quotamonitor.sqlite" \
+        "$dir/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
+
+    grep -q 'Computer Use app target' "$brief" \
+        || fail "real-data Computer Use app target missing from brief"
+    grep -q '/Volumes/SamsungDisk/Code/quota-monitor/.build/QuotaMonitor.app' "$brief" \
+        || fail "real-data Computer Use brief must use the exact QA app path"
 }
 
 test_assert_artifact_contract() {
@@ -541,6 +584,8 @@ test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
 test_write_computer_qa_brief
 test_write_interactive_cleanup_script
+test_computer_qa_brief_includes_exact_app_target
+test_real_data_computer_qa_brief_includes_exact_app_target
 test_assert_artifact_contract
 test_assert_artifact_contract_allows_incomplete_ax_with_warning
 test_warns_when_ax_snapshot_is_incomplete

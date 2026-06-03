@@ -29,7 +29,12 @@ REAL_DB="${QM_QA_REAL_DB_PATH:-$(qm_default_real_database_path "$HOME")}"
 PROTECTION_REPORT="${ARTIFACTS}/real-data-protection.txt"
 
 mkdir -p "$QA_HOME" "$ARTIFACTS" "$APP_ARTIFACTS"
-qm_write_interactive_cleanup "$CLEANUP_SCRIPT" "$WORK_ROOT" "$QA_HOME" "$DEFAULTS_SUITE"
+qm_write_interactive_cleanup \
+    "$CLEANUP_SCRIPT" \
+    "$WORK_ROOT" \
+    "$QA_HOME" \
+    "$DEFAULTS_SUITE" \
+    "${ARTIFACTS}/app-state.json"
 
 SOURCE_FINGERPRINT_BEFORE="$(qm_file_fingerprint "$REAL_DB")"
 qm_copy_sqlite_snapshot "$REAL_DB" "$DB_PATH"

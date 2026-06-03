@@ -25,7 +25,12 @@ BRIEF="${ARTIFACTS}/computer-use-qa.md"
 CLEANUP_SCRIPT="${ARTIFACTS}/cleanup-interactive.sh"
 
 mkdir -p "$QA_HOME" "$ARTIFACTS" "$APP_ARTIFACTS"
-qm_write_interactive_cleanup "$CLEANUP_SCRIPT" "$WORK_ROOT" "$QA_HOME" "$DEFAULTS_SUITE"
+qm_write_interactive_cleanup \
+    "$CLEANUP_SCRIPT" \
+    "$WORK_ROOT" \
+    "$QA_HOME" \
+    "$DEFAULTS_SUITE" \
+    "${ARTIFACTS}/app-state.json"
 qm_write_defaults "$QA_HOME" "$DEFAULTS_SUITE"
 qm_seed_fixtures "$QA_HOME"
 

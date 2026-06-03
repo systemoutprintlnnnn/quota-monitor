@@ -30,6 +30,7 @@ for Computer Use. It prints:
 
 - the artifact directory,
 - `computer-use-qa.md`, a per-run walkthrough brief,
+- `Computer Use app target`, the exact `.app` path Computer Use should target,
 - `cleanup-interactive.sh`, the command that stops the app and removes the QA
   work root.
 
@@ -42,6 +43,12 @@ Every run also writes `qa-boundary.json`. Treat it as the source of truth for
 the current test boundary: fixture vs real-data-shadow mode, QA-only write
 roots, disabled live external sources, and UI actions that require explicit
 approval before Computer Use can click them.
+
+When using Computer Use, pass the exact `Computer Use app target` from the
+brief. Do not target the app by the bare name `QuotaMonitor` or only by bundle
+identifier: a developer machine may also have `/Applications/QuotaMonitor.app`
+running, and the exact path keeps Computer Use attached to the isolated QA
+build.
 
 When the question is "does the latest app render my real historical data
 correctly?", launch the real-data shadow mode instead:
