@@ -7,8 +7,8 @@ QuotaMonitor uses two standard validation responsibilities:
 2. Computer Use verifies the real macOS UI by operating an isolated latest
    build like a user.
 
-The interactive scripts are setup helpers, not a separate visible-app test
-layer. They prove that the isolated app, data, and artifact boundary are
+The Computer Use setup scripts are launch helpers, not a separate visible-app
+test layer. They prove that the isolated app, data, and artifact boundary are
 ready; Computer Use owns the visible user-facing verdict.
 
 Use this flow when a change affects visible behavior, navigation, settings,
@@ -23,10 +23,10 @@ Run the static suite first:
 ```
 
 This does not launch a new QuotaMonitor instance. If the change needs visible
-UI validation, then launch an isolated interactive QA app:
+UI validation, then prepare an isolated QA app for Computer Use:
 
 ```sh
-./qa/run-interactive.sh
+./qa/prepare-computer-use-fixture.sh
 ```
 
 This setup command builds the latest local app, starts it with fixture data,
@@ -36,11 +36,11 @@ running for Computer Use. It prints:
 - the artifact directory,
 - `computer-use-qa.md`, a per-run walkthrough brief,
 - `Computer Use app target`, the exact `.app` path Computer Use should target,
-- `cleanup-interactive.sh`, the command that stops the app and removes the QA
+- `cleanup-computer-use.sh`, the command that stops the app and removes the QA
   work root.
 
-After the walkthrough, run `cleanup-interactive.sh` unless the QA app must stay
-open for follow-up inspection. The cleanup script closes only QA-launched
+After the walkthrough, run `cleanup-computer-use.sh` unless the QA app must
+stay open for follow-up inspection. The cleanup script closes only QA-launched
 QuotaMonitor processes. If `/Applications/QuotaMonitor.app` was running before
 the QA launch and is no longer running after cleanup, the script reopens it.
 
@@ -64,7 +64,7 @@ When the question is "does the latest app render my real historical data
 correctly?", launch the real-data shadow mode instead:
 
 ```sh
-./qa/run-real-data-interactive.sh
+./qa/prepare-computer-use-real-data.sh
 ```
 
 This still uses an isolated QA profile. It copies the real QuotaMonitor SQLite
@@ -93,8 +93,7 @@ instance:
 
 ## What Computer Use Setup Verifies
 
-The interactive scripts still perform setup checks before handing control to
-Computer Use:
+The setup scripts still perform checks before handing control to Computer Use:
 
 - the app launches as a macOS `.app` bundle,
 - Dashboard, Settings, menu-bar help, and the popover can be opened,
@@ -117,8 +116,8 @@ Computer Use owns user-facing operability:
 - Visual pass: clipped text, overlapping controls, blank charts, missing icons,
   unexpected disabled states.
 
-Do not use real Codex or Claude credentials during this pass. The interactive
-QA app is already configured with fixture data and an isolated profile.
+Do not use real Codex or Claude credentials during this pass. The fixture setup
+already configured the QA app with isolated data and an isolated profile.
 
 For real-data shadow QA, the data is real but the profile is still isolated.
 Treat the source database path as read-only evidence and avoid any Computer Use

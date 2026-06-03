@@ -10,7 +10,7 @@ launched, isolated QA build.
 | Responsibility | Command | Launches app? | What it owns |
 | --- | --- | --- | --- |
 | Static gate | `./qa/run-static.sh` or `./qa/run-all.sh` | No | Shell/Python helper tests, release-note format, whitespace checks, and Swift tests. |
-| Computer Use setup | `./qa/run-interactive.sh` or `./qa/run-real-data-interactive.sh` | Yes, isolated QA build only | Build the latest app, prepare fixture or real-data-shadow state, verify the artifact boundary, and write the Computer Use brief. |
+| Computer Use setup | `./qa/prepare-computer-use-fixture.sh` or `./qa/prepare-computer-use-real-data.sh` | Yes, isolated QA build only | Build the latest app, prepare fixture or real-data-shadow state, verify the artifact boundary, and write the Computer Use brief. |
 | Computer Use walkthrough | Computer Use using the exact app target from `computer-use-qa.md` | Uses the running QA build | User-facing Dashboard, Sessions, History, Settings, menu bar, help, and visual checks. |
 | Artifact replay | `./qa/check-artifacts.sh .build/qa-artifacts/<timestamp>` | No | Re-check an existing artifact directory without rebuilding or relaunching the app. |
 
@@ -41,13 +41,13 @@ Run the default non-GUI gate:
 Launch the fixture app setup and keep it open for Computer Use:
 
 ```sh
-./qa/run-interactive.sh
+./qa/prepare-computer-use-fixture.sh
 ```
 
 Launch the real-data shadow setup and keep it open for Computer Use:
 
 ```sh
-./qa/run-real-data-interactive.sh
+./qa/prepare-computer-use-real-data.sh
 ```
 
 Re-check a QA artifact directory:
@@ -78,14 +78,6 @@ The Codex desktop Run action is wired to `./script/build_and_run.sh` through
 - `git diff --check`
 - `swift test --disable-keychain`
 
-## Diagnostic-only harness
-
-`qa/run-local.sh` is retained only for debugging QA startup and
-artifact-contract code. Not a standard test layer: it launches the fixture app,
-collects setup artifacts, verifies the artifact contract, then exits. For
-normal local verification, run the Static gate first; for visible app behavior,
-run an interactive setup script and use Computer Use.
-
 ## What the Interactive Harness Sets Up
 
 The harness creates a temporary profile and writes `qa-config.json` into the
@@ -98,8 +90,9 @@ open .build/QuotaMonitor.app --args --quotamonitor-qa-config-base64 <payload>
 
 The app still accepts the older
 `--quotamonitor-qa-config <artifact-dir>/qa-config.json` form for focused
-debugging, but the normal interactive setup path uses the inline config payload
-so startup does not depend on app-side file reads from the artifact volume.
+debugging, but the normal Computer Use setup path uses the inline config
+payload so startup does not depend on app-side file reads from the artifact
+volume.
 
 The config includes:
 
@@ -137,8 +130,9 @@ off, and a 15-minute polling interval.
 
 ## Artifacts
 
-Each interactive or diagnostic setup prints an artifact directory under
-`.build/qa-artifacts/<timestamp>/`. Important files:
+Each Computer Use setup prints an artifact directory under
+`.build/qa-artifacts/<timestamp>-interactive/` or
+`.build/qa-artifacts/<timestamp>-real-data-interactive/`. Important files:
 
 - `app-state.json` — app-reported PID, bundle id, database/log paths, visible
   windows, status-item visibility, settings snapshot, and menu-bar totals.
@@ -171,7 +165,7 @@ contract:
 If the AX dump is required, run:
 
 ```sh
-QM_QA_REQUIRE_AX=1 ./qa/run-interactive.sh
+QM_QA_REQUIRE_AX=1 ./qa/prepare-computer-use-fixture.sh
 ```
 
 Grant Accessibility permission to the terminal/Codex host app if this fails.
@@ -195,8 +189,8 @@ session, usage events for both providers, and Codex JSONL rate-limit samples.
 
 ## Computer Use QA
 
-`qa/run-interactive.sh` uses the same isolated harness but does not clean up or
-quit the app. It writes a per-run `computer-use-qa.md` brief into the artifact
+`qa/prepare-computer-use-fixture.sh` sets up an isolated fixture run and keeps
+the app open. It writes a per-run `computer-use-qa.md` brief into the artifact
 directory, keeps the latest local build open, and prints a cleanup script path.
 The brief includes the exact `.app` path to pass to Computer Use; use that path
 instead of the bare `QuotaMonitor` app name so the agent does not attach to a
@@ -212,9 +206,9 @@ See `docs/computer-qa.md` for the expected Computer Use checklist.
 
 ## Real Data Shadow QA
 
-`qa/run-real-data-interactive.sh` is the opt-in path for checking how the latest
-local build renders the user's real historical QuotaMonitor data without
-letting the app touch the original profile.
+`qa/prepare-computer-use-real-data.sh` is the opt-in setup path for checking
+how the latest local build renders the user's real historical QuotaMonitor data
+without letting the app touch the original profile.
 
 The script:
 
@@ -239,7 +233,7 @@ The default source is:
 To test a different source database:
 
 ```sh
-QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/run-real-data-interactive.sh
+QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/prepare-computer-use-real-data.sh
 ```
 
 The app is expected to mutate only the shadow database under the QA home. The

@@ -34,8 +34,7 @@ window copy.
 
 ### Changed
 - **Static QA default.** `qa/run-all.sh` now delegates to `qa/run-static.sh` and no longer launches a new QuotaMonitor instance.
-- **Computer Use owns visible app validation.** The standard visible QA path is `qa/run-interactive.sh` or `qa/run-real-data-interactive.sh` followed by Computer Use.
-- **Diagnostic-only fixture harness.** `qa/run-local.sh` is retained only for debugging QA startup and artifact-contract code, not as a standard test layer.
+- **Computer Use owns visible app validation.** The standard visible QA path is `qa/prepare-computer-use-fixture.sh` or `qa/prepare-computer-use-real-data.sh` followed by Computer Use.
 - **Testing circuit documentation.** `docs/local-qa.md`, `docs/computer-qa.md`, and the project QA skill now describe the same responsibilities: static gate, Computer Use setup, Computer Use walkthrough, and artifact replay.
 
 ### Added
@@ -45,6 +44,9 @@ window copy.
 
 ### Fixed
 - **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
+
+### Removed
+- **Old app E2E entrypoint.** `qa/run-local.sh` has been removed so the QA architecture has no separate visible-app test layer outside Computer Use.
 
 ## [0.2.30] — 2026-06-01
 

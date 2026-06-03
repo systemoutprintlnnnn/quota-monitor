@@ -22,12 +22,12 @@ QA_CONFIG="${ARTIFACTS}/qa-config.json"
 BOUNDARY_MANIFEST="${ARTIFACTS}/qa-boundary.json"
 QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_interactive_steps)}"
 BRIEF="${ARTIFACTS}/computer-use-qa.md"
-CLEANUP_SCRIPT="${ARTIFACTS}/cleanup-interactive.sh"
+CLEANUP_SCRIPT="${ARTIFACTS}/cleanup-computer-use.sh"
 INSTALLED_APP_BUNDLE="$(qm_installed_app_bundle)"
 INSTALLED_APP_WAS_RUNNING="$(qm_installed_app_was_running "$INSTALLED_APP_BUNDLE")"
 
 mkdir -p "$QA_HOME" "$ARTIFACTS" "$APP_ARTIFACTS"
-qm_write_interactive_cleanup \
+qm_write_computer_use_cleanup \
     "$CLEANUP_SCRIPT" \
     "$WORK_ROOT" \
     "$QA_HOME" \

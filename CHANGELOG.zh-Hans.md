@@ -31,8 +31,7 @@ appcast 中按系统语言切换的双语更新说明。
 
 ### 变更
 - **静态 QA 默认入口。** `qa/run-all.sh` 现在转发到 `qa/run-static.sh`，不再启动新的 QuotaMonitor 实例。
-- **Computer Use 负责可见 app 验证。** 标准可见 QA 路径是 `qa/run-interactive.sh` 或 `qa/run-real-data-interactive.sh`，然后使用 Computer Use。
-- **仅诊断用 fixture harness。** `qa/run-local.sh` 仅保留用于调试 QA 启动和 artifact contract 代码，不再作为标准测试层。
+- **Computer Use 负责可见 app 验证。** 标准可见 QA 路径是 `qa/prepare-computer-use-fixture.sh` 或 `qa/prepare-computer-use-real-data.sh`，然后使用 Computer Use。
 - **测试链路文档。** `docs/local-qa.md`、`docs/computer-qa.md` 和项目 QA skill 现在用同一套职责描述：静态门禁、Computer Use 准备、Computer Use 走查和 artifact 复核。
 
 ### 新增
@@ -42,6 +41,9 @@ appcast 中按系统语言切换的双语更新说明。
 
 ### 修复
 - **QA 清理后恢复已安装 app。** QA 清理现在会记录 `/Applications/QuotaMonitor.app` 运行前状态，只关闭 QA 启动的进程，并在需要时恢复已安装 app。
+
+### 移除
+- **旧的 app E2E 入口。** `qa/run-local.sh` 已移除，因此 QA 架构不再在 Computer Use 之外保留单独的可见 app 测试层。
 
 ## [0.2.30] — 2026-06-01
 

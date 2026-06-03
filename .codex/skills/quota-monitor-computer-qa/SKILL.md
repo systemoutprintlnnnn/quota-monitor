@@ -30,13 +30,13 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    layer. For fixture UI walkthroughs, launch:
 
    ```sh
-   ./qa/run-interactive.sh
+   ./qa/prepare-computer-use-fixture.sh
    ```
 
    For realistic historical rendering with protected source data, launch:
 
    ```sh
-   ./qa/run-real-data-interactive.sh
+   ./qa/prepare-computer-use-real-data.sh
    ```
 
 4. Open the run's `computer-use-qa.md` and use its `Computer Use app target`
@@ -58,7 +58,7 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    ./qa/check-artifacts.sh <artifact-dir>
    ```
 
-7. After Computer Use, run the printed `cleanup-interactive.sh` unless the user
+7. After Computer Use, run the printed `cleanup-computer-use.sh` unless the user
    explicitly wants the QA app left open. The cleanup closes only QA-launched
    QuotaMonitor processes and restores `/Applications/QuotaMonitor.app` if it
    was running before the QA launch.
