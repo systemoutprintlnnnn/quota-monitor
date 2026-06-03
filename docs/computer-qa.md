@@ -1,32 +1,37 @@
 # Computer Use QA
 
-QuotaMonitor uses two complementary QA modes:
+QuotaMonitor uses two standard validation responsibilities:
 
-1. Code-driven checks verify deterministic logic, app startup, fixture import,
-   core windows, settings state, logs, screenshots, and AX artifacts.
-2. Computer Use verifies the real macOS UI by operating the latest built app
-   like a user.
+1. Static checks verify deterministic logic, QA helper scripts, release-note
+   format, and Swift tests without launching `QuotaMonitor.app`.
+2. Computer Use verifies the real macOS UI by operating an isolated latest
+   build like a user.
+
+The interactive scripts are setup helpers, not a separate visible-app test
+layer. They prove that the isolated app, data, and artifact boundary are
+ready; Computer Use owns the visible user-facing verdict.
 
 Use this flow when a change affects visible behavior, navigation, settings,
 window lifecycle, or any workflow that is hard to trust from unit tests alone.
 
 ## Workflow
 
-Run the full deterministic suite first:
+Run the static suite first:
 
 ```sh
-./qa/run-all.sh
+./qa/run-static.sh
 ```
 
-Then launch an isolated interactive QA app:
+This does not launch a new QuotaMonitor instance. If the change needs visible
+UI validation, then launch an isolated interactive QA app:
 
 ```sh
 ./qa/run-interactive.sh
 ```
 
-This command builds the latest local app, starts it with fixture data, opens
-the core windows, verifies the artifact contract, and keeps the app running
-for Computer Use. It prints:
+This setup command builds the latest local app, starts it with fixture data,
+opens the core windows, verifies the setup artifact contract, and keeps the app
+running for Computer Use. It prints:
 
 - the artifact directory,
 - `computer-use-qa.md`, a per-run walkthrough brief,
@@ -75,10 +80,21 @@ To re-check an artifact directory later:
 ./qa/check-artifacts.sh .build/qa-artifacts/<timestamp>-interactive
 ```
 
-## What Code Verifies
+## What Static Checks Verify
 
-The deterministic layer owns the assertions that should not depend on screen
-reading:
+The static layer owns assertions that should not require launching a new app
+instance:
+
+- parser, importer, storage, pricing, and settings logic,
+- launch-config parsing and QA boundary helpers,
+- release-note/changelog helper scripts,
+- whitespace and repository hygiene checks,
+- Swift test coverage.
+
+## What Computer Use Setup Verifies
+
+The interactive scripts still perform setup checks before handing control to
+Computer Use:
 
 - the app launches as a macOS `.app` bundle,
 - Dashboard, Settings, menu-bar help, and the popover can be opened,

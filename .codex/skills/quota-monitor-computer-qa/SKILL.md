@@ -16,16 +16,18 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    git status --short --branch
    ```
 
-2. Run deterministic checks first:
+2. Run static checks first. This does not launch `QuotaMonitor.app`:
 
    ```sh
-   ./qa/run-all.sh
+   ./qa/run-static.sh
    ```
 
-   If this fails, inspect the failing command and artifact before using
-   Computer Use.
+   `./qa/run-all.sh` is an alias for the same static suite. If this fails,
+   inspect the failing command before launching any QA app instance.
 
-3. For fixture UI walkthroughs, launch:
+3. For visible UI work, launch an isolated setup app for Computer Use. The
+   setup script prepares artifacts; it is not a separate visible-app test
+   layer. For fixture UI walkthroughs, launch:
 
    ```sh
    ./qa/run-interactive.sh

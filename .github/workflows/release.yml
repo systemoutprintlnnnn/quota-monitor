@@ -64,15 +64,19 @@ jobs:
             exit 1
           fi
 
+      - name: Validate release notes
+        run: |
+          VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
+          python3 tools/validate-release-notes.py "${VERSION}" CHANGELOG.md CHANGELOG.zh-Hans.md
+
       - name: Run release pipeline
         # tests + release build + DMG + sha256 + mount-verify self-check.
         run: ./tools/release.sh
 
       - name: Extract CHANGELOG section for this release
         # Slice the `## [X.Y.Z] — YYYY-MM-DD` block out of CHANGELOG.md
-        # to feed `gh release create --notes-file`. Falls back to a stub
-        # if the section is missing — we don't want a forgotten changelog
-        # entry to block the release upload.
+        # to feed `gh release create --notes-file`. This step now fails if
+        # the section is missing; releases must ship clear user-facing notes.
         id: notes
         run: |
           VERSION="$(tr -d '[:space:]' < Resources/VERSION)"
@@ -83,8 +87,8 @@ jobs:
             found { print }
           ' CHANGELOG.md > "${NOTES_FILE}"
           if [[ ! -s "${NOTES_FILE}" ]]; then
-            echo "::warning::no CHANGELOG section found for ${VERSION}, using stub"
-            echo "Release ${VERSION}. See CHANGELOG.md for details." > "${NOTES_FILE}"
+            echo "::error::no CHANGELOG section found for ${VERSION}"
+            exit 1
           fi
           echo "path=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
           echo "---- release notes ----"

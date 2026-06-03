@@ -1,12 +1,21 @@
-# Local QA Harness
+# Testing Circuit
 
-This repo has two local verification layers:
+QuotaMonitor keeps static checks separate from visible macOS UI validation.
+The default local and CI path must not launch a new `QuotaMonitor.app`
+instance. Visible behavior is checked by Computer Use against an explicitly
+launched, isolated QA build.
 
-1. Swift/package tests for deterministic model, parser, storage, pricing, and
-   UI-decision behavior.
-2. A macOS app harness that builds and launches `QuotaMonitor.app` in an
-   isolated QA profile, drives the main windows, imports fixture usage data,
-   and captures artifacts Codex can inspect without manual clicking.
+## Standard Test Circuit
+
+| Responsibility | Command | Launches app? | What it owns |
+| --- | --- | --- | --- |
+| Static gate | `./qa/run-static.sh` or `./qa/run-all.sh` | No | Shell/Python helper tests, release-note format, whitespace checks, and Swift tests. |
+| Computer Use setup | `./qa/run-interactive.sh` or `./qa/run-real-data-interactive.sh` | Yes, isolated QA build only | Build the latest app, prepare fixture or real-data-shadow state, verify the artifact boundary, and write the Computer Use brief. |
+| Computer Use walkthrough | Computer Use using the exact app target from `computer-use-qa.md` | Uses the running QA build | User-facing Dashboard, Sessions, History, Settings, menu bar, help, and visual checks. |
+| Artifact replay | `./qa/check-artifacts.sh .build/qa-artifacts/<timestamp>` | No | Re-check an existing artifact directory without rebuilding or relaunching the app. |
+
+`qa/run-all.sh` is intentionally an alias for the Static gate. It exists so
+agents can run the default local suite without starting a GUI app by mistake.
 
 ## Commands
 
@@ -22,20 +31,20 @@ Run the Swift test suite:
 swift test --disable-keychain
 ```
 
-Run the isolated macOS end-to-end harness:
+Run the default non-GUI gate:
 
 ```sh
-./qa/run-local.sh
+./qa/run-static.sh
+./qa/run-all.sh
 ```
 
-Launch an isolated QA app and keep it open for Computer Use:
+Launch the fixture app setup and keep it open for Computer Use:
 
 ```sh
 ./qa/run-interactive.sh
 ```
 
-Launch an isolated QA app with a copied snapshot of the real QuotaMonitor
-SQLite database:
+Launch the real-data shadow setup and keep it open for Computer Use:
 
 ```sh
 ./qa/run-real-data-interactive.sh
@@ -45,12 +54,6 @@ Re-check a QA artifact directory:
 
 ```sh
 ./qa/check-artifacts.sh .build/qa-artifacts/<timestamp>
-```
-
-Run the full local suite:
-
-```sh
-./qa/run-all.sh
 ```
 
 Launch the app manually through the shared build/run entrypoint:
@@ -65,7 +68,25 @@ Launch the app manually through the shared build/run entrypoint:
 The Codex desktop Run action is wired to `./script/build_and_run.sh` through
 `.codex/environments/environment.toml`.
 
-## What `qa/run-local.sh` Verifies
+## Static Gate
+
+`qa/run-static.sh` is the default non-GUI gate. It runs:
+
+- `qa/tests/common_tests.sh`
+- Python tests under `tools/tests`
+- release-note format validation for `Resources/VERSION`
+- `git diff --check`
+- `swift test --disable-keychain`
+
+## Diagnostic-only harness
+
+`qa/run-local.sh` is retained only for debugging QA startup and
+artifact-contract code. Not a standard test layer: it launches the fixture app,
+collects setup artifacts, verifies the artifact contract, then exits. For
+normal local verification, run the Static gate first; for visible app behavior,
+run an interactive setup script and use Computer Use.
+
+## What the Interactive Harness Sets Up
 
 The harness creates a temporary profile and writes `qa-config.json` into the
 artifact directory. `script/build_and_run.sh --qa` validates that config file,
@@ -77,8 +98,8 @@ open .build/QuotaMonitor.app --args --quotamonitor-qa-config-base64 <payload>
 
 The app still accepts the older
 `--quotamonitor-qa-config <artifact-dir>/qa-config.json` form for focused
-debugging, but the normal end-to-end script uses the inline config payload so
-startup does not depend on app-side file reads from the artifact volume.
+debugging, but the normal interactive setup path uses the inline config payload
+so startup does not depend on app-side file reads from the artifact volume.
 
 The config includes:
 
@@ -96,7 +117,7 @@ keeps GUI app file IO away from repo/external-volume paths that can trigger
 macOS file-access prompts or stalls. It uses `defaultsSuite` for settings and
 localization, so the harness does not read or overwrite the normal
 `dev.tjzhou.QuotaMonitor` preferences domain. The older `QUOTAMONITOR_QA_*`
-environment variables still work for focused unit tests, but the end-to-end
+environment variables still work for focused unit tests, but the interactive
 launch path uses command-line config because LaunchServices environment
 propagation is not reliable for GUI app launches.
 
@@ -116,7 +137,7 @@ off, and a 15-minute polling interval.
 
 ## Artifacts
 
-Each `qa/run-local.sh` run prints an artifact directory under
+Each interactive or diagnostic setup prints an artifact directory under
 `.build/qa-artifacts/<timestamp>/`. Important files:
 
 - `app-state.json` — app-reported PID, bundle id, database/log paths, visible
@@ -131,7 +152,8 @@ Each `qa/run-local.sh` run prints an artifact directory under
 - `screen.png` — full-screen screenshot when macOS allows `screencapture`.
 - `ax-tree.txt` — Accessibility tree dump for open QuotaMonitor windows.
 
-Before `qa/run-local.sh` succeeds, it asserts the artifact contract:
+Before a setup script reports the artifact directory, it asserts the artifact
+contract:
 
 - `qa-boundary.json` exists, is valid JSON, matches the expected QA mode, keeps
   app writes under the QA home, disables live external sources, and documents
@@ -149,7 +171,7 @@ Before `qa/run-local.sh` succeeds, it asserts the artifact contract:
 If the AX dump is required, run:
 
 ```sh
-QM_QA_REQUIRE_AX=1 ./qa/run-local.sh
+QM_QA_REQUIRE_AX=1 ./qa/run-interactive.sh
 ```
 
 Grant Accessibility permission to the terminal/Codex host app if this fails.
@@ -185,7 +207,7 @@ should intentionally stay open. The cleanup script closes only QA-launched
 processes and restores `/Applications/QuotaMonitor.app` if it was already
 running before the QA launch.
 
-Use this after `qa/run-all.sh` when the change needs a real UI walkthrough.
+Use this after `qa/run-static.sh` when the change needs a real UI walkthrough.
 See `docs/computer-qa.md` for the expected Computer Use checklist.
 
 ## Real Data Shadow QA

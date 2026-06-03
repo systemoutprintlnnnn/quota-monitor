@@ -8,6 +8,4 @@ if [[ -f "${HOME}/.swiftly/env.sh" ]]; then
     . "${HOME}/.swiftly/env.sh"
 fi
 
-"${ROOT_DIR}/qa/tests/common_tests.sh"
-(cd "$ROOT_DIR" && swift test --disable-keychain)
-"${ROOT_DIR}/qa/run-local.sh"
+"${ROOT_DIR}/qa/run-static.sh"

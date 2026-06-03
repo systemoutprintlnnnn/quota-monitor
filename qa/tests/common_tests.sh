@@ -183,6 +183,51 @@ test_app_artifacts_dir_lives_under_qa_home() {
         || fail "app artifact dir should be identifiable: $app_artifacts"
 }
 
+test_static_entrypoint_does_not_launch_app() {
+    assert_file "$ROOT_DIR/qa/run-static.sh"
+    grep -q 'qa/run-static.sh' "$ROOT_DIR/qa/run-all.sh" \
+        || fail "run-all should delegate to run-static"
+    if grep -q 'qa/run-local.sh' "$ROOT_DIR/qa/run-all.sh"; then
+        fail "run-all must not launch a QA app instance"
+    fi
+    grep -q 'swift test --disable-keychain' "$ROOT_DIR/qa/run-static.sh" \
+        || fail "run-static should include the Swift test suite"
+    grep -q 'python3 -m unittest discover tools/tests' "$ROOT_DIR/qa/run-static.sh" \
+        || fail "run-static should include Python tool tests"
+}
+
+test_standard_test_circuit_is_documented() {
+    local doc="$ROOT_DIR/docs/local-qa.md"
+    assert_file "$doc"
+
+    grep -q '## Standard Test Circuit' "$doc" \
+        || fail "testing doc should define the standard test circuit"
+    for phrase in \
+        'Static gate' \
+        'Computer Use setup' \
+        'Computer Use walkthrough' \
+        'Artifact replay' \
+        'Diagnostic-only harness'; do
+        grep -q "$phrase" "$doc" \
+            || fail "testing doc missing responsibility: $phrase"
+    done
+    grep -q 'Not a standard test layer' "$doc" \
+        || fail "run-local should be labeled as outside the standard test circuit"
+    if grep -q './qa/run-local.sh' "$ROOT_DIR/.github/workflows/tests.yml"; then
+        fail "CI comments must not present run-local as a standard GUI opt-in"
+    fi
+}
+
+test_standard_qa_docs_do_not_recommend_run_local() {
+    for file in \
+        "$ROOT_DIR/.codex/skills/quota-monitor-computer-qa/SKILL.md" \
+        "$ROOT_DIR/docs/computer-qa.md"; do
+        if grep -q './qa/run-local.sh' "$file"; then
+            fail "standard QA flow should use Computer Use, not run-local: $file"
+        fi
+    done
+}
+
 test_write_computer_qa_brief() {
     local dir brief
     dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-brief.XXXXXX")"
@@ -604,6 +649,9 @@ test_default_steps_include_settings_exercise
 test_interactive_steps_are_safe_for_computer_use
 test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
+test_static_entrypoint_does_not_launch_app
+test_standard_test_circuit_is_documented
+test_standard_qa_docs_do_not_recommend_run_local
 test_write_computer_qa_brief
 test_write_interactive_cleanup_script
 test_write_interactive_cleanup_script_restores_installed_app
