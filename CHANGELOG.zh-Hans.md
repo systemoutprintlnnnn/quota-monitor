@@ -43,7 +43,7 @@ appcast 中按系统语言切换的双语更新说明。
 
 ### 修复
 - **Codex 配额来源隔离。** Codex 配额卡片和历史曲线现在会忽略同一存储表中的 Claude OAuth 样本，避免不同 provider 的视图互相串数据。
-- **Codex 刷新诊断。** 失败的 Codex rate-limit 刷新现在会正确关闭 developer-log 操作记录，活跃的 429 冷却也会优先显示冷却原因，而不是普通自动轮询节流原因。
+- **Codex 刷新诊断。** Codex rate-limit 刷新的 poller 路径现在会保留超时保护，失败操作会正确关闭 developer-log 操作记录，活跃的 429 冷却也会优先显示冷却原因，而不是普通自动轮询节流原因。
 - **QA 清理后恢复已安装 app。** QA 清理现在会记录 `/Applications/QuotaMonitor.app` 运行前状态，只关闭 QA 启动的进程，并在需要时恢复已安装 app。
 
 ### 移除

@@ -8,6 +8,7 @@ struct RateLimitPollerTests {
         enum Step: Sendable {
             case success(RateLimitsPayload)
             case failure(any Error)
+            case hang
         }
 
         private var script: [Step]
@@ -25,6 +26,9 @@ struct RateLimitPollerTests {
                 return payload
             case .failure(let error):
                 throw error
+            case .hang:
+                try await Task.sleep(for: .seconds(3600))
+                throw CancellationError()
             }
         }
 
@@ -84,15 +88,36 @@ struct RateLimitPollerTests {
     private func makePoller(
         fetcher: any CodexRateLimitsFetching,
         db: DatabaseManager,
-        snapshots: SnapshotBox
+        snapshots: SnapshotBox,
+        fetchTimeout: Duration = .seconds(30)
     ) -> RateLimitPoller {
         RateLimitPoller(
             fetcher: fetcher,
             database: db,
             interval: .seconds(300),
+            fetchTimeout: fetchTimeout,
             onSnapshot: { snapshot in
                 snapshots.append(snapshot)
             })
+    }
+
+    private func completeWithin(
+        _ duration: Duration,
+        operation: @escaping @Sendable () async -> RateLimitPoller.PollOutcome
+    ) async -> RateLimitPoller.PollOutcome? {
+        await withTaskGroup(of: RateLimitPoller.PollOutcome?.self) { group in
+            group.addTask {
+                await operation()
+            }
+            group.addTask {
+                try? await Task.sleep(for: duration)
+                return nil
+            }
+
+            let result = await group.next()!
+            group.cancelAll()
+            return result
+        }
     }
 
     @Test("two rapid pollOnce calls collapse to one Codex usage fetch")
@@ -177,6 +202,30 @@ struct RateLimitPollerTests {
             Issue.record("expected active 429 cooldown to win over minimum-gap skip")
             return
         }
+    }
+
+    @Test("hung fetch returns failure instead of stranding pollOnce")
+    func hungFetchTimesOut() async throws {
+        let mock = MockCodexRateLimitsFetcher(script: [.hang])
+        let db = try makeDatabase()
+        let snapshots = SnapshotBox()
+        let poller = makePoller(
+            fetcher: mock,
+            db: db,
+            snapshots: snapshots,
+            fetchTimeout: .milliseconds(50))
+
+        let outcome = await completeWithin(.seconds(1)) {
+            await poller.pollOnce(trigger: "manual")
+        }
+
+        guard case .failure(let message) = outcome else {
+            Issue.record("expected hung Codex usage fetch to return failure before the UI refresh can be stranded")
+            return
+        }
+
+        #expect(message.contains("timed out"))
+        #expect(snapshots.all.isEmpty)
     }
 
     @Test("success after an elapsed 429 cooldown clears the cooldown")

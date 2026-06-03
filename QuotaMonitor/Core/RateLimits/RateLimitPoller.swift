@@ -32,6 +32,7 @@ actor RateLimitPoller {
     private let fetcher: any CodexRateLimitsFetching
     private let database: DatabaseManager
     private var interval: Duration
+    private let fetchTimeout: Duration
     private var task: Task<Void, Never>?
     private let onSnapshot: @Sendable (RateLimitSnapshot) async -> Void
     private var cooldownUntil: Date?
@@ -42,11 +43,13 @@ actor RateLimitPoller {
         fetcher: any CodexRateLimitsFetching,
         database: DatabaseManager,
         interval: Duration = .seconds(300),
+        fetchTimeout: Duration = .seconds(30),
         onSnapshot: @escaping @Sendable (RateLimitSnapshot) async -> Void
     ) {
         self.fetcher = fetcher
         self.database = database
         self.interval = interval
+        self.fetchTimeout = fetchTimeout
         self.onSnapshot = onSnapshot
     }
 
@@ -54,12 +57,14 @@ actor RateLimitPoller {
         appServer: AppServerClient,
         database: DatabaseManager,
         interval: Duration = .seconds(300),
+        fetchTimeout: Duration = .seconds(30),
         onSnapshot: @escaping @Sendable (RateLimitSnapshot) async -> Void
     ) {
         self.init(
             fetcher: appServer,
             database: database,
             interval: interval,
+            fetchTimeout: fetchTimeout,
             onSnapshot: onSnapshot)
     }
 
@@ -163,7 +168,13 @@ actor RateLimitPoller {
 
         lastAttemptAt = now
         do {
-            let payload = try await fetcher.readRateLimits()
+            let fetcher = self.fetcher
+            let payload = try await Self.withTimeout(
+                fetchTimeout,
+                context: "Codex rate-limit fetch"
+            ) {
+                try await fetcher.readRateLimits()
+            }
             let snapshot = RateLimitSnapshot(from: payload)
             consecutiveRateLimits = 0
             cooldownUntil = nil
@@ -258,6 +269,30 @@ actor RateLimitPoller {
         return nil
     }
 
+    private static func withTimeout<R: Sendable>(
+        _ duration: Duration,
+        context: String,
+        operation: @escaping @Sendable () async throws -> R
+    ) async throws -> R {
+        let workTask = Task<R, Error>(operation: operation)
+        return try await withThrowingTaskGroup(of: R?.self) { group in
+            group.addTask {
+                try await workTask.value
+            }
+            group.addTask {
+                try? await Task.sleep(for: duration)
+                workTask.cancel()
+                return nil
+            }
+            defer { group.cancelAll() }
+            for try await result in group {
+                if let value = result { return value }
+                throw RateLimitPollerTimeoutError(context: context)
+            }
+            throw RateLimitPollerTimeoutError(context: context)
+        }
+    }
+
     private func persist(snapshot: RateLimitSnapshot) async throws {
         let captured = ISO8601.fractional.string(from: snapshot.capturedAt)
         let plan = snapshot.planType
@@ -313,4 +348,10 @@ actor RateLimitPoller {
                 max(0, 100 - window.usedPercent)
             ])
     }
+}
+
+private struct RateLimitPollerTimeoutError: LocalizedError, CustomStringConvertible, Sendable {
+    let context: String
+    var description: String { "\(context) timed out" }
+    var errorDescription: String? { description }
 }

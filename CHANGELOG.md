@@ -46,7 +46,7 @@ window copy.
 
 ### Fixed
 - **Codex quota source isolation.** Codex quota cards and history now ignore Claude OAuth samples that share the same storage table, preventing provider views from crossing over.
-- **Codex refresh diagnostics.** Failed Codex rate-limit refresh operations now close their developer-log entry, and active 429 cooldowns report the cooldown reason before normal automatic-poll throttling.
+- **Codex refresh diagnostics.** Codex rate-limit refreshes keep a timeout guard on the poller path, failed operations now close their developer-log entry, and active 429 cooldowns report the cooldown reason before normal automatic-poll throttling.
 - **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
 
 ### Removed
