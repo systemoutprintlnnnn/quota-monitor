@@ -610,16 +610,9 @@ final class AppEnvironment {
                         DeveloperLog.finishOperation(op, result: "skipped", fields: fields)
                     case .failure(let message):
                         self.lastError = message
-                        DeveloperLog.eventRecord(
-                            "ratelimits.refresh.fail",
-                            level: .error,
-                            category: "poller",
-                            operation: op,
-                            trigger: trigger,
-                            provider: "codex",
-                            result: "failure",
-                            message: message,
-                            fields: ["error_message": .string(message)])
+                        DeveloperLog.failOperation(
+                            op,
+                            error: RateLimitsRefreshError(message: message))
                     }
                 }
             }
@@ -1020,4 +1013,9 @@ struct BoundedWorkTimeoutError: LocalizedError, Sendable {
     let context: String
     let seconds: Int
     var errorDescription: String? { "\(context) timed out after \(seconds)s" }
+}
+
+private struct RateLimitsRefreshError: LocalizedError, Sendable {
+    let message: String
+    var errorDescription: String? { message }
 }

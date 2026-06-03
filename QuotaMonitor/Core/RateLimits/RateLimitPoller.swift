@@ -120,6 +120,25 @@ actor RateLimitPoller {
         bypassMinimumGap: Bool = false
     ) async -> PollOutcome {
         let now = Date()
+        if let until = cooldownUntil, until > now {
+            let remaining = until.timeIntervalSince(now)
+            Log.poller.info("codex usage skipped — in 429 cooldown for \(Int(remaining), privacy: .public)s more")
+            DeveloperLog.eventRecord(
+                "ratelimits.poll.skip",
+                category: "poller",
+                trigger: trigger,
+                provider: "codex",
+                result: "skipped",
+                fields: [
+                    "reason": "rate-limit-cooldown",
+                    "remaining_seconds": .int(Int(remaining)),
+                    "cooldown_until": .string(ISO8601.fractional.string(from: until))
+                ])
+            return .skipped(.rateLimitCooldown(
+                remainingSeconds: Int(remaining),
+                until: until))
+        }
+
         if !bypassMinimumGap, let last = lastAttemptAt {
             let elapsed = now.timeIntervalSince(last)
             let gapSec = Double(Self.minimumGap.components.seconds)
@@ -140,25 +159,6 @@ actor RateLimitPoller {
                     elapsedSeconds: Int(elapsed),
                     minimumSeconds: Int(gapSec)))
             }
-        }
-
-        if let until = cooldownUntil, until > now {
-            let remaining = until.timeIntervalSince(now)
-            Log.poller.info("codex usage skipped — in 429 cooldown for \(Int(remaining), privacy: .public)s more")
-            DeveloperLog.eventRecord(
-                "ratelimits.poll.skip",
-                category: "poller",
-                trigger: trigger,
-                provider: "codex",
-                result: "skipped",
-                fields: [
-                    "reason": "rate-limit-cooldown",
-                    "remaining_seconds": .int(Int(remaining)),
-                    "cooldown_until": .string(ISO8601.fractional.string(from: until))
-                ])
-            return .skipped(.rateLimitCooldown(
-                remainingSeconds: Int(remaining),
-                until: until))
         }
 
         lastAttemptAt = now

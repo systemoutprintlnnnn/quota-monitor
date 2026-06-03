@@ -157,6 +157,28 @@ struct RateLimitPollerTests {
         #expect(snapshots.all.isEmpty, "429 should not publish a new snapshot")
     }
 
+    @Test("active 429 cooldown is reported before the minimum gap")
+    func activeCooldownTakesPrecedenceOverMinimumGap() async throws {
+        let mock = MockCodexRateLimitsFetcher(script: [
+            .failure(AppServerClient.ClientError.rpcError(
+                JSONRPCError(
+                    code: -32603,
+                    message: "failed to fetch codex rate limits: 429 Too Many Requests",
+                    data: nil)))
+        ])
+        let db = try makeDatabase()
+        let snapshots = SnapshotBox()
+        let poller = makePoller(fetcher: mock, db: db, snapshots: snapshots)
+
+        await poller.pollOnce()
+        let outcome = await poller.pollOnce()
+
+        guard case .skipped(.rateLimitCooldown) = outcome else {
+            Issue.record("expected active 429 cooldown to win over minimum-gap skip")
+            return
+        }
+    }
+
     @Test("success after an elapsed 429 cooldown clears the cooldown")
     func successAfterCooldownClearsState() async throws {
         let mock = MockCodexRateLimitsFetcher(script: [
