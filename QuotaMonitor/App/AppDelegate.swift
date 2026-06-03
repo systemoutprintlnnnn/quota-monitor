@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
+    private var localQAController: LocalQAController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = AppEnvironment.shared
@@ -53,6 +54,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // doesn't get the onboarding/dashboard window every launch.
             closeStrayWindows()
             scheduleDiscoverabilityCheck()
+        }
+
+        if let qa = LocalQAConfiguration() {
+            let qaController = LocalQAController(
+                configuration: qa,
+                environment: env,
+                statusItemController: controller)
+            localQAController = qaController
+            qaController.start()
         }
     }
 
