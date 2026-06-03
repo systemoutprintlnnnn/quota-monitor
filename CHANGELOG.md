@@ -5,7 +5,48 @@ All notable changes to QuotaMonitor (formerly CodexMonitor) are documented here.
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Release-note standard
+
+Every merged PR should update `## [Unreleased]` before or with the merge.
+These entries become both the GitHub Release notes and the Sparkle update
+window copy.
+
+- Start each release section with `#### Summary`: 1-4 plain, user-readable
+  bullets. These are always visible in the update window.
+- Put details under `### Added`, `### Changed`, `### Fixed`, `### Removed`,
+  or `### Known limitation(s)`.
+- Start each detail bullet with a short bold title, then one concise sentence:
+  `- **Short title.** What changed and why it matters.`
+- Keep implementation details, commit archaeology, and internal test evidence
+  in PR bodies or docs unless they directly explain user impact.
+- Pull-request CI enforces this for non-appcast PRs; the generated appcast PR
+  is exempt because it publishes the release notes already authored in the
+  release PR.
+- Validate before a release with
+  `python3 tools/validate-release-notes.py X.Y.Z`.
+
 ## [Unreleased]
+
+#### Summary
+- Release and PR checks are stricter while the default local QA path stays static
+- The test circuit now clearly separates static checks, Computer Use setup, visible UI walkthroughs, and artifact replay
+- Interactive QA cleanup no longer risks closing the user's installed QuotaMonitor app
+
+### Changed
+- **Static QA default.** `qa/run-all.sh` now delegates to `qa/run-static.sh` and no longer launches a new QuotaMonitor instance.
+- **Computer Use owns visible app validation.** The standard visible QA path is `qa/prepare-computer-use-fixture.sh` or `qa/prepare-computer-use-real-data.sh` followed by Computer Use.
+- **Testing circuit documentation.** `docs/local-qa.md`, `docs/computer-qa.md`, and the project QA skill now describe the same responsibilities: static gate, Computer Use setup, Computer Use walkthrough, and artifact replay.
+
+### Added
+- **Isolated Local QA harness.** Local QA runs now launch QuotaMonitor with an isolated profile, fixture data, redirected Codex/Claude homes, and machine-checkable artifacts for app state, database counts, logs, screenshots, and accessibility snapshots.
+- **Computer Use QA workflow.** Interactive fixture and real-data shadow runs now produce a per-run brief with the exact QA app path, making visible Dashboard, History, Sessions, Settings, and help-window checks repeatable without targeting the installed app by mistake.
+- **PR changelog enforcement.** Pull-request CI now requires both English and Simplified-Chinese changelog updates for non-appcast PRs, then validates the section that will appear in the update window.
+
+### Fixed
+- **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
+
+### Removed
+- **Old app E2E entrypoint.** `qa/run-local.sh` has been removed so the QA architecture has no separate visible-app test layer outside Computer Use.
 
 ## [0.2.30] — 2026-06-01
 

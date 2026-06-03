@@ -10,31 +10,31 @@ qm_require_command sqlite3
 qm_require_command plutil
 
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
-WORK_ROOT="${QM_QA_WORK_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/quotamonitor-qa.XXXXXX")}"
+WORK_ROOT="${QM_QA_WORK_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/quotamonitor-computer-qa.XXXXXX")}"
 QA_HOME="${WORK_ROOT}/home"
-ARTIFACTS="${QM_QA_ARTIFACTS:-${ROOT_DIR}/.build/qa-artifacts/${RUN_ID}}"
+ARTIFACTS="${QM_QA_ARTIFACTS:-${ROOT_DIR}/.build/qa-artifacts/${RUN_ID}-computer-use-fixture}"
 APP_ARTIFACTS="$(qm_app_artifacts_dir "$QA_HOME")"
-DEFAULTS_SUITE="${QM_QA_DEFAULTS_SUITE:-dev.tjzhou.QuotaMonitor.QA.${RUN_ID}.$$}"
+DEFAULTS_SUITE="${QM_QA_DEFAULTS_SUITE:-dev.tjzhou.QuotaMonitor.ComputerQA.${RUN_ID}.$$}"
 STATE_JSON="${APP_ARTIFACTS}/app-state.json"
 DB_PATH="${QA_HOME}/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
 DEV_LOG="${QA_HOME}/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log"
 QA_CONFIG="${ARTIFACTS}/qa-config.json"
 BOUNDARY_MANIFEST="${ARTIFACTS}/qa-boundary.json"
-QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_default_steps)}"
+QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_computer_use_steps)}"
+BRIEF="${ARTIFACTS}/computer-use-qa.md"
+CLEANUP_SCRIPT="${ARTIFACTS}/cleanup-computer-use.sh"
 INSTALLED_APP_BUNDLE="$(qm_installed_app_bundle)"
 INSTALLED_APP_WAS_RUNNING="$(qm_installed_app_was_running "$INSTALLED_APP_BUNDLE")"
 
-cleanup() {
-    qm_stop_local_qa_process_from_state "$STATE_JSON"
-    HOME="$QA_HOME" defaults delete "$DEFAULTS_SUITE" >/dev/null 2>&1 || true
-    if [[ -z "${QM_QA_KEEP_WORK_ROOT:-}" ]]; then
-        rm -rf "$WORK_ROOT"
-    fi
-    qm_restore_installed_app_if_needed "$INSTALLED_APP_WAS_RUNNING" "$INSTALLED_APP_BUNDLE"
-}
-trap cleanup EXIT
-
 mkdir -p "$QA_HOME" "$ARTIFACTS" "$APP_ARTIFACTS"
+qm_write_computer_use_cleanup \
+    "$CLEANUP_SCRIPT" \
+    "$WORK_ROOT" \
+    "$QA_HOME" \
+    "$DEFAULTS_SUITE" \
+    "${ARTIFACTS}/app-state.json" \
+    "$INSTALLED_APP_BUNDLE" \
+    "$INSTALLED_APP_WAS_RUNNING"
 qm_write_defaults "$QA_HOME" "$DEFAULTS_SUITE"
 qm_seed_fixtures "$QA_HOME"
 
@@ -124,5 +124,11 @@ if command -v osascript >/dev/null 2>&1; then
 fi
 
 qm_assert_artifact_contract "$ARTIFACTS"
+qm_write_computer_qa_brief "$BRIEF" "$ARTIFACTS" "$QA_HOME" "$DEFAULTS_SUITE" "$ROOT_DIR"
 
-echo "QA artifacts: $ARTIFACTS"
+cat <<EOF
+Computer Use fixture QA app is running.
+QA artifacts: $ARTIFACTS
+Computer Use brief: $BRIEF
+Cleanup command: $CLEANUP_SCRIPT
+EOF

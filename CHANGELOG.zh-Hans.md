@@ -8,10 +8,42 @@ appcast 中按系统语言切换的双语更新说明。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 发布说明规范
+
+每个合入的 PR 都应在合入前或随合入一起更新 `## [Unreleased]`。这些内容会成为 GitHub Release notes，也会进入 Sparkle 更新窗口。
+
+- 每个发布小节必须先写 `#### Summary`：1-4 条普通、用户能直接看懂的短 bullet。更新窗口会默认展示这些内容。
+- 详情放在 `### 新增`、`### 变更`、`### 修复`、`### 移除` 或 `### 已知限制` 下。
+- 每条详情 bullet 以短加粗标题开头，然后用一句话说明变化和影响：`- **短标题。** 说明变化以及为什么重要。`
+- 实现细节、提交考古和内部测试证据优先放在 PR body 或 docs 中；只有直接解释用户影响时才进入 changelog。
+- 非 appcast PR 会由 PR CI 强制检查这条规则；自动生成的 appcast PR 只负责发布 release PR 中已经写好的说明，因此豁免。
+- 发版前运行 `python3 tools/validate-release-notes.py X.Y.Z` 校验格式。
+
 > **撰写约定**：本文件中每条 `- ` 列表项必须写在**同一行**（不要硬换行）。
 > 发布脚本在拼接续行时会插入空格，对中文会造成字符之间出现多余空格。
 
 ## [Unreleased]
+
+#### Summary
+- 发布和 PR 检查更严格，同时默认本地 QA 路径保持静态
+- 测试链路现在明确拆分静态检查、Computer Use 准备、可见 UI 走查和 artifact 复核
+- 交互式 QA 清理不再误关用户已安装的 QuotaMonitor
+
+### 变更
+- **静态 QA 默认入口。** `qa/run-all.sh` 现在转发到 `qa/run-static.sh`，不再启动新的 QuotaMonitor 实例。
+- **Computer Use 负责可见 app 验证。** 标准可见 QA 路径是 `qa/prepare-computer-use-fixture.sh` 或 `qa/prepare-computer-use-real-data.sh`，然后使用 Computer Use。
+- **测试链路文档。** `docs/local-qa.md`、`docs/computer-qa.md` 和项目 QA skill 现在用同一套职责描述：静态门禁、Computer Use 准备、Computer Use 走查和 artifact 复核。
+
+### 新增
+- **隔离的本地 QA harness。** 本地 QA 现在会用隔离 profile、fixture 数据、重定向后的 Codex/Claude home 启动 QuotaMonitor，并产出 app 状态、数据库计数、日志、截图和辅助功能快照等可机器检查的 artifacts。
+- **Computer Use QA 工作流。** 交互式 fixture 和真实数据影子运行现在会生成包含精确 QA app 路径的 run brief，让 Dashboard、History、Sessions、Settings 和帮助窗口的可见检查可以复跑，并避免误操作已安装 app。
+- **PR 更新日志强制检查。** 非 appcast PR 的 CI 现在要求同时更新英文和简体中文 changelog，并校验会展示在更新窗口中的小节。
+
+### 修复
+- **QA 清理后恢复已安装 app。** QA 清理现在会记录 `/Applications/QuotaMonitor.app` 运行前状态，只关闭 QA 启动的进程，并在需要时恢复已安装 app。
+
+### 移除
+- **旧的 app E2E 入口。** `qa/run-local.sh` 已移除，因此 QA 架构不再在 Computer Use 之外保留单独的可见 app 测试层。
 
 ## [0.2.30] — 2026-06-01
 

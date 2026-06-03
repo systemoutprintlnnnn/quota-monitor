@@ -60,7 +60,7 @@ qm_default_steps() {
         "open-dashboard,open-settings,open-menubar-help,show-popover,refresh-all,exercise-settings,wait,snapshot"
 }
 
-qm_interactive_steps() {
+qm_computer_use_steps() {
     qm_default_steps
 }
 
@@ -170,7 +170,7 @@ qm_restore_installed_app_if_needed() {
     }
 }
 
-qm_write_interactive_cleanup() {
+qm_write_computer_use_cleanup() {
     local cleanup_path="$1"
     local work_root="$2"
     local qa_home="$3"
@@ -267,7 +267,7 @@ qm_write_computer_qa_brief() {
         printf '%s\n' "- QA home: \`$qa_home\`"
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
         printf '%s\n' "- Boundary manifest: \`$artifacts/qa-boundary.json\`"
-        printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-interactive.sh\`"
+        printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-computer-use.sh\`"
         printf 'Do not use real Codex or Claude credentials. The app is running with fixture data, an isolated HOME, and an isolated UserDefaults suite.\n\n'
         printf '## Before Computer Use\n\n'
         printf '1. Confirm `qa-boundary.json`, `app-state.json`, `db-counts.txt`, `quotamonitor-dev.log`, `screen.png`, and `ax-tree.txt` exist in the artifact directory.\n'
@@ -313,7 +313,7 @@ qm_write_real_data_computer_qa_brief() {
         printf '%s\n' "- Source DB: \`$source_db\`"
         printf '%s\n' "- Shadow DB: \`$shadow_db\`"
         printf '%s\n' "- Boundary manifest: \`$artifacts/qa-boundary.json\`"
-        printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-interactive.sh\`"
+        printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-computer-use.sh\`"
         printf 'The app is running against the shadow DB under the isolated QA home. The original DB path is never passed to the app.\n\n'
         printf '## Data Boundary\n\n'
         printf '%s\n' '- The source database was copied with a SQLite backup into the QA home before launch.'
