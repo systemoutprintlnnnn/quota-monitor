@@ -21,6 +21,8 @@ DEV_LOG="${QA_HOME}/Library/Application Support/QuotaMonitor/Logs/quotamonitor-d
 QA_CONFIG="${ARTIFACTS}/qa-config.json"
 BOUNDARY_MANIFEST="${ARTIFACTS}/qa-boundary.json"
 QA_STEPS="${QUOTAMONITOR_QA_STEPS:-$(qm_default_steps)}"
+INSTALLED_APP_BUNDLE="$(qm_installed_app_bundle)"
+INSTALLED_APP_WAS_RUNNING="$(qm_installed_app_was_running "$INSTALLED_APP_BUNDLE")"
 
 cleanup() {
     qm_stop_local_qa_process_from_state "$STATE_JSON"
@@ -28,6 +30,7 @@ cleanup() {
     if [[ -z "${QM_QA_KEEP_WORK_ROOT:-}" ]]; then
         rm -rf "$WORK_ROOT"
     fi
+    qm_restore_installed_app_if_needed "$INSTALLED_APP_WAS_RUNNING" "$INSTALLED_APP_BUNDLE"
 }
 trap cleanup EXIT
 

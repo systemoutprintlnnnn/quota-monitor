@@ -180,6 +180,11 @@ The brief includes the exact `.app` path to pass to Computer Use; use that path
 instead of the bare `QuotaMonitor` app name so the agent does not attach to a
 separately installed copy.
 
+Run the printed cleanup script after the Computer Use pass unless the QA app
+should intentionally stay open. The cleanup script closes only QA-launched
+processes and restores `/Applications/QuotaMonitor.app` if it was already
+running before the QA launch.
+
 Use this after `qa/run-all.sh` when the change needs a real UI walkthrough.
 See `docs/computer-qa.md` for the expected Computer Use checklist.
 

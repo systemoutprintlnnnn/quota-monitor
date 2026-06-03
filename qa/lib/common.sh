@@ -124,38 +124,104 @@ qm_copy_sqlite_snapshot() {
 SQL
 }
 
+qm_installed_app_bundle() {
+    printf '%s\n' "${QM_QA_INSTALLED_APP_BUNDLE:-/Applications/QuotaMonitor.app}"
+}
+
+qm_installed_app_running() {
+    local bundle="${1:-$(qm_installed_app_bundle)}"
+    local binary="${bundle}/Contents/MacOS/QuotaMonitor"
+    local pid command
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        command="$(/bin/ps -p "$pid" -o command= 2>/dev/null || true)"
+        if [[ "$command" == "$binary"* ]] \
+            && [[ "$command" != *"--quotamonitor-qa-config"* ]]; then
+            return 0
+        fi
+    done < <(/usr/bin/pgrep -x QuotaMonitor 2>/dev/null || true)
+    return 1
+}
+
+qm_installed_app_was_running() {
+    local bundle="${1:-$(qm_installed_app_bundle)}"
+    if qm_installed_app_running "$bundle"; then
+        printf '1\n'
+    else
+        printf '0\n'
+    fi
+}
+
+qm_restore_installed_app_if_needed() {
+    local was_running="${1:-0}"
+    local bundle="${2:-$(qm_installed_app_bundle)}"
+
+    [[ "$was_running" == "1" ]] || return 0
+    [[ -d "$bundle" ]] || {
+        echo "warning: installed QuotaMonitor app not found for restore: $bundle" >&2
+        return 0
+    }
+    qm_installed_app_running "$bundle" && return 0
+
+    /usr/bin/open -g "$bundle" >/dev/null 2>&1 || {
+        echo "warning: failed to restore installed QuotaMonitor app: $bundle" >&2
+        return 0
+    }
+}
+
 qm_write_interactive_cleanup() {
     local cleanup_path="$1"
     local work_root="$2"
     local qa_home="$3"
     local defaults_suite="$4"
     local state_json="${5:-}"
+    local installed_app_bundle="${6:-$(qm_installed_app_bundle)}"
+    local installed_app_was_running="${7:-0}"
+    local repo_root
+    repo_root="$(qm_repo_root)"
 
     mkdir -p "$(dirname "$cleanup_path")"
     {
         printf '#!/usr/bin/env bash\n'
         printf 'set -euo pipefail\n'
+        printf 'ROOT_DIR=%q\n' "$repo_root"
         printf 'WORK_ROOT=%q\n' "$work_root"
         printf 'QA_HOME=%q\n' "$qa_home"
         printf 'DEFAULTS_SUITE=%q\n' "$defaults_suite"
         printf 'STATE_JSON=%q\n' "$state_json"
-        printf 'if [[ -f "$STATE_JSON" ]]; then\n'
-        printf '    pid="$(/usr/bin/plutil -extract pid raw "$STATE_JSON" 2>/dev/null || true)"\n'
-        printf '    if [[ "$pid" =~ ^[0-9]+$ ]] \\\n'
-        printf '        && /bin/ps -p "$pid" -o command= 2>/dev/null \\\n'
-        printf '            | /usr/bin/grep -q -- "--quotamonitor-qa-config"; then\n'
-        printf '        /bin/kill "$pid" >/dev/null 2>&1 || true\n'
-        printf '    fi\n'
-        printf 'fi\n'
-        printf '/usr/bin/pkill -f '"'"'[Q]uotaMonitor .*--quotamonitor-qa-config'"'"' >/dev/null 2>&1 || true\n'
+        printf 'INSTALLED_APP_BUNDLE=%q\n' "$installed_app_bundle"
+        printf 'INSTALLED_APP_WAS_RUNNING=%q\n' "$installed_app_was_running"
+        printf '# QA process cleanup is scoped to --quotamonitor-qa-config launches.\n'
+        printf '. "$ROOT_DIR/qa/lib/common.sh"\n'
+        printf 'qm_stop_local_qa_process_from_state "$STATE_JSON"\n'
         printf 'HOME="$QA_HOME" defaults delete "$DEFAULTS_SUITE" >/dev/null 2>&1 || true\n'
         printf 'rm -rf "$WORK_ROOT"\n'
+        printf 'qm_restore_installed_app_if_needed "$INSTALLED_APP_WAS_RUNNING" "$INSTALLED_APP_BUNDLE"\n'
     } >"$cleanup_path"
     chmod +x "$cleanup_path"
 }
 
+qm_wait_for_no_local_qa_processes() {
+    local attempts="${1:-25}"
+    local delay="${2:-0.2}"
+    local i
+
+    for ((i = 0; i < attempts; i++)); do
+        if ! qm_local_qa_process_running; then
+            return 0
+        fi
+        sleep "$delay"
+    done
+    return 1
+}
+
 qm_stop_local_qa_processes() {
     /usr/bin/pkill -f '[Q]uotaMonitor .*--quotamonitor-qa-config' >/dev/null 2>&1 || true
+    if ! qm_wait_for_no_local_qa_processes; then
+        /usr/bin/pkill -9 -f '[Q]uotaMonitor .*--quotamonitor-qa-config' >/dev/null 2>&1 || true
+        qm_wait_for_no_local_qa_processes 10 0.1 >/dev/null 2>&1 || true
+    fi
 }
 
 qm_stop_local_qa_process_from_state() {

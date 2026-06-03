@@ -27,6 +27,8 @@ BRIEF="${ARTIFACTS}/computer-use-qa.md"
 CLEANUP_SCRIPT="${ARTIFACTS}/cleanup-interactive.sh"
 REAL_DB="${QM_QA_REAL_DB_PATH:-$(qm_default_real_database_path "$HOME")}"
 PROTECTION_REPORT="${ARTIFACTS}/real-data-protection.txt"
+INSTALLED_APP_BUNDLE="$(qm_installed_app_bundle)"
+INSTALLED_APP_WAS_RUNNING="$(qm_installed_app_was_running "$INSTALLED_APP_BUNDLE")"
 
 mkdir -p "$QA_HOME" "$ARTIFACTS" "$APP_ARTIFACTS"
 qm_write_interactive_cleanup \
@@ -34,7 +36,9 @@ qm_write_interactive_cleanup \
     "$WORK_ROOT" \
     "$QA_HOME" \
     "$DEFAULTS_SUITE" \
-    "${ARTIFACTS}/app-state.json"
+    "${ARTIFACTS}/app-state.json" \
+    "$INSTALLED_APP_BUNDLE" \
+    "$INSTALLED_APP_WAS_RUNNING"
 
 SOURCE_FINGERPRINT_BEFORE="$(qm_file_fingerprint "$REAL_DB")"
 qm_copy_sqlite_snapshot "$REAL_DB" "$DB_PATH"
