@@ -56,8 +56,10 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    ./qa/check-artifacts.sh <artifact-dir>
    ```
 
-7. Clean up with the printed `cleanup-interactive.sh` unless the user wants the
-   QA app left open.
+7. After Computer Use, run the printed `cleanup-interactive.sh` unless the user
+   explicitly wants the QA app left open. The cleanup closes only QA-launched
+   QuotaMonitor processes and restores `/Applications/QuotaMonitor.app` if it
+   was running before the QA launch.
 
 ## Boundaries
 
@@ -83,11 +85,11 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
   run as a QA boundary failure.
 - If an installed QuotaMonitor process is also running, do not kill it while
   cleaning up QA. The QA cleanup targets only processes launched with the QA
-  config argument.
+  config argument, then restores the installed app if the run had displaced it.
 
 ## Report
 
 Report commands run, artifact directory, exact Computer Use app target,
 Computer Use observations by area, failures with screenshot or AX evidence,
 untested areas, cleanup state, and whether a real installed QuotaMonitor
-process was present.
+process was present/restored.

@@ -34,6 +34,11 @@ for Computer Use. It prints:
 - `cleanup-interactive.sh`, the command that stops the app and removes the QA
   work root.
 
+After the walkthrough, run `cleanup-interactive.sh` unless the QA app must stay
+open for follow-up inspection. The cleanup script closes only QA-launched
+QuotaMonitor processes. If `/Applications/QuotaMonitor.app` was running before
+the QA launch and is no longer running after cleanup, the script reopens it.
+
 The app writes its own state snapshot inside the isolated QA profile. The
 script copies that snapshot into the printed artifact directory, so Computer
 Use can inspect repo-local artifacts without making the app write directly to

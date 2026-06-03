@@ -236,6 +236,28 @@ test_write_interactive_cleanup_script() {
         || fail "cleanup script does not remove the QA work root"
 }
 
+test_write_interactive_cleanup_script_restores_installed_app() {
+    local dir cleanup
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-restore.XXXXXX")"
+    cleanup="$dir/cleanup.sh"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_interactive_cleanup \
+        "$cleanup" \
+        "$dir/work" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "$dir/artifacts/app-state.json" \
+        "/Applications/QuotaMonitor.app" \
+        "1"
+
+    assert_file "$cleanup"
+    grep -q 'INSTALLED_APP_BUNDLE=/Applications/QuotaMonitor.app' "$cleanup" \
+        || fail "cleanup script does not remember the installed app bundle"
+    grep -q 'qm_restore_installed_app_if_needed "$INSTALLED_APP_WAS_RUNNING" "$INSTALLED_APP_BUNDLE"' "$cleanup" \
+        || fail "cleanup script does not restore a previously running installed app"
+}
+
 test_computer_qa_brief_includes_exact_app_target() {
     local dir brief
     dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-target.XXXXXX")"
@@ -584,6 +606,7 @@ test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
 test_write_computer_qa_brief
 test_write_interactive_cleanup_script
+test_write_interactive_cleanup_script_restores_installed_app
 test_computer_qa_brief_includes_exact_app_target
 test_real_data_computer_qa_brief_includes_exact_app_target
 test_assert_artifact_contract
