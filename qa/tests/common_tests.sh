@@ -146,20 +146,20 @@ test_default_steps_include_settings_exercise() {
         || fail "default QA steps do not exercise settings: $steps"
 }
 
-test_interactive_steps_are_safe_for_computer_use() {
+test_computer_use_steps_keep_app_open() {
     local steps
-    steps="$(qm_interactive_steps)"
+    steps="$(qm_computer_use_steps)"
 
     [[ "$steps" == *"open-dashboard"* ]] \
-        || fail "interactive QA steps do not open Dashboard: $steps"
+        || fail "Computer Use setup steps do not open Dashboard: $steps"
     [[ "$steps" == *"open-settings"* ]] \
-        || fail "interactive QA steps do not open Settings: $steps"
+        || fail "Computer Use setup steps do not open Settings: $steps"
     [[ "$steps" == *"show-popover"* ]] \
-        || fail "interactive QA steps do not show the popover: $steps"
+        || fail "Computer Use setup steps do not show the popover: $steps"
     [[ "$steps" == *"snapshot"* ]] \
-        || fail "interactive QA steps do not write a snapshot: $steps"
+        || fail "Computer Use setup steps do not write a snapshot: $steps"
     [[ "$steps" != *"quit"* ]] \
-        || fail "interactive QA steps must keep the app open: $steps"
+        || fail "Computer Use setup steps must keep the app open: $steps"
 }
 
 test_steps_include_quit_detects_exact_step() {
@@ -181,6 +181,93 @@ test_app_artifacts_dir_lives_under_qa_home() {
         || fail "app artifact dir must live under QA home: $app_artifacts"
     [[ "$app_artifacts" == *"QAArtifacts" ]] \
         || fail "app artifact dir should be identifiable: $app_artifacts"
+}
+
+test_static_entrypoint_does_not_launch_app() {
+    assert_file "$ROOT_DIR/qa/run-static.sh"
+    grep -q 'qa/run-static.sh' "$ROOT_DIR/qa/run-all.sh" \
+        || fail "run-all should delegate to run-static"
+    if grep -q 'qa/run-local.sh' "$ROOT_DIR/qa/run-all.sh"; then
+        fail "run-all must not launch a QA app instance"
+    fi
+    grep -q 'swift test --disable-keychain' "$ROOT_DIR/qa/run-static.sh" \
+        || fail "run-static should include the Swift test suite"
+    grep -q 'python3 -m unittest discover tools/tests' "$ROOT_DIR/qa/run-static.sh" \
+        || fail "run-static should include Python tool tests"
+}
+
+test_obsolete_local_e2e_entrypoint_is_removed() {
+    if [[ -e "$ROOT_DIR/qa/run-local.sh" ]]; then
+        fail "obsolete app E2E entrypoint should be removed: qa/run-local.sh"
+    fi
+}
+
+test_computer_use_setup_entrypoints_are_role_named() {
+    assert_file "$ROOT_DIR/qa/prepare-computer-use-fixture.sh"
+    assert_file "$ROOT_DIR/qa/prepare-computer-use-real-data.sh"
+    for obsolete in \
+        "$ROOT_DIR/qa/run-interactive.sh" \
+        "$ROOT_DIR/qa/run-real-data-interactive.sh"; do
+        if [[ -e "$obsolete" ]]; then
+            fail "Computer Use setup entrypoint should be role-named, not interactive: $obsolete"
+        fi
+    done
+}
+
+test_computer_use_setup_language_is_consistent() {
+    if grep -q \
+        -e 'qm_interactive_steps' \
+        -e 'Interactive QA app' \
+        -e 'interactive setup' \
+        -e 'interactive harness' \
+        -e '-interactive' \
+        -- \
+        "$ROOT_DIR/qa/prepare-computer-use-fixture.sh" \
+        "$ROOT_DIR/qa/prepare-computer-use-real-data.sh" \
+        "$ROOT_DIR/qa/lib/common.sh" \
+        "$ROOT_DIR/docs/local-qa.md" \
+        "$ROOT_DIR/docs/computer-qa.md" \
+        "$ROOT_DIR/.codex/skills/quota-monitor-computer-qa/SKILL.md"; then
+        fail "Computer Use setup should not retain old interactive naming"
+    fi
+}
+
+test_standard_test_circuit_is_documented() {
+    local doc="$ROOT_DIR/docs/local-qa.md"
+    assert_file "$doc"
+
+    grep -q '## Standard Test Circuit' "$doc" \
+        || fail "testing doc should define the standard test circuit"
+    for phrase in \
+        'Static gate' \
+        'Computer Use setup' \
+        'Computer Use walkthrough' \
+        'Artifact replay'; do
+        grep -q "$phrase" "$doc" \
+            || fail "testing doc missing responsibility: $phrase"
+    done
+    if grep -q \
+        -e 'run-local' \
+        -e 'Diagnostic-only' \
+        -e 'run-interactive' \
+        -e 'run-real-data-interactive' \
+        "$doc" "$ROOT_DIR/.github/workflows/tests.yml"; then
+        fail "standard test circuit must not mention removed local E2E entrypoints"
+    fi
+    grep -q './qa/prepare-computer-use-fixture.sh' "$doc" \
+        || fail "testing doc should name fixture Computer Use setup entrypoint"
+    grep -q './qa/prepare-computer-use-real-data.sh' "$doc" \
+        || fail "testing doc should name real-data Computer Use setup entrypoint"
+}
+
+test_standard_qa_docs_do_not_recommend_run_local() {
+    for file in \
+        "$ROOT_DIR/.codex/skills/quota-monitor-computer-qa/SKILL.md" \
+        "$ROOT_DIR/docs/computer-qa.md"; do
+        if grep -q -e 'run-local' -e 'run-interactive' -e 'run-real-data-interactive' "$file"; then
+            fail "standard QA flow should not mention removed or unclear QA entrypoints: $file"
+        fi
+    done
 }
 
 test_write_computer_qa_brief() {
@@ -209,15 +296,17 @@ test_write_computer_qa_brief() {
         || fail "Settings walkthrough missing from brief"
     grep -q 'Do not use real Codex or Claude credentials' "$brief" \
         || fail "credential safety warning missing from brief"
+    grep -q 'cleanup-computer-use.sh' "$brief" \
+        || fail "Computer Use cleanup command missing from brief"
 }
 
-test_write_interactive_cleanup_script() {
+test_write_computer_use_cleanup_script() {
     local dir cleanup
     dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-cleanup.XXXXXX")"
     cleanup="$dir/cleanup.sh"
     trap 'rm -rf "$dir"' RETURN
 
-    qm_write_interactive_cleanup \
+    qm_write_computer_use_cleanup \
         "$cleanup" \
         "$dir/work" \
         "$dir/home" \
@@ -234,6 +323,28 @@ test_write_interactive_cleanup_script() {
         || fail "cleanup script does not delete QA defaults"
     grep -q 'rm -rf' "$cleanup" \
         || fail "cleanup script does not remove the QA work root"
+}
+
+test_write_computer_use_cleanup_script_restores_installed_app() {
+    local dir cleanup
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-computer-qa-restore.XXXXXX")"
+    cleanup="$dir/cleanup.sh"
+    trap 'rm -rf "$dir"' RETURN
+
+    qm_write_computer_use_cleanup \
+        "$cleanup" \
+        "$dir/work" \
+        "$dir/home" \
+        "dev.tjzhou.QuotaMonitor.QA.Test" \
+        "$dir/artifacts/app-state.json" \
+        "/Applications/QuotaMonitor.app" \
+        "1"
+
+    assert_file "$cleanup"
+    grep -q 'INSTALLED_APP_BUNDLE=/Applications/QuotaMonitor.app' "$cleanup" \
+        || fail "cleanup script does not remember the installed app bundle"
+    grep -q 'qm_restore_installed_app_if_needed "$INSTALLED_APP_WAS_RUNNING" "$INSTALLED_APP_BUNDLE"' "$cleanup" \
+        || fail "cleanup script does not restore a previously running installed app"
 }
 
 test_computer_qa_brief_includes_exact_app_target() {
@@ -253,6 +364,8 @@ test_computer_qa_brief_includes_exact_app_target() {
         || fail "Computer Use app target missing from brief"
     grep -q '/Volumes/SamsungDisk/Code/quota-monitor/.build/QuotaMonitor.app' "$brief" \
         || fail "Computer Use brief must use the exact QA app path"
+    grep -q 'cleanup-computer-use.sh' "$brief" \
+        || fail "Computer Use cleanup command missing from target brief"
 }
 
 test_real_data_computer_qa_brief_includes_exact_app_target() {
@@ -274,6 +387,8 @@ test_real_data_computer_qa_brief_includes_exact_app_target() {
         || fail "real-data Computer Use app target missing from brief"
     grep -q '/Volumes/SamsungDisk/Code/quota-monitor/.build/QuotaMonitor.app' "$brief" \
         || fail "real-data Computer Use brief must use the exact QA app path"
+    grep -q 'cleanup-computer-use.sh' "$brief" \
+        || fail "real-data Computer Use cleanup command missing from brief"
 }
 
 test_assert_artifact_contract() {
@@ -579,11 +694,18 @@ test_write_boundary_manifest_documents_fixture_policy
 test_assert_boundary_manifest_contract_rejects_wrong_mode
 test_launch_config_base64
 test_default_steps_include_settings_exercise
-test_interactive_steps_are_safe_for_computer_use
+test_computer_use_steps_keep_app_open
 test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
+test_static_entrypoint_does_not_launch_app
+test_obsolete_local_e2e_entrypoint_is_removed
+test_computer_use_setup_entrypoints_are_role_named
+test_computer_use_setup_language_is_consistent
+test_standard_test_circuit_is_documented
+test_standard_qa_docs_do_not_recommend_run_local
 test_write_computer_qa_brief
-test_write_interactive_cleanup_script
+test_write_computer_use_cleanup_script
+test_write_computer_use_cleanup_script_restores_installed_app
 test_computer_qa_brief_includes_exact_app_target
 test_real_data_computer_qa_brief_includes_exact_app_target
 test_assert_artifact_contract

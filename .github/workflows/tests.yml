@@ -1,12 +1,10 @@
-# Runs the swift-testing suite plus a release-build smoke check on
-# every push and PR.
+# Runs static QA checks plus a release-build smoke check on every push and PR.
 #
 # Why a single workflow / single job: the project's main risk is upstream
 # wire-format drift (Codex CLI app-server JSON-RPC + Anthropic OAuth
-# usage payloads) silently breaking the decoder. The 70-test suite is
-# the canary — running it on every push catches that drift before it
-# ships in a DMG. Dev box is CLT-only, so the dev `swift test` already
-# uses swift-testing (not XCTest); this workflow mirrors that exactly.
+# usage payloads) silently breaking the decoder. The static QA suite includes
+# Swift tests as the canary, plus shell/Python checks for the local QA and
+# release-note helper scripts. It does not launch a GUI app instance.
 #
 # The release-build step is the second canary: Swift 6 strict concurrency
 # + release-mode optimization occasionally surface issues that debug
@@ -38,6 +36,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
 
       - name: Show toolchain
         # Surface swift / xcode versions in the log so a future Swift-7
@@ -46,12 +46,16 @@ jobs:
           swift --version
           xcodebuild -version || true
 
-      - name: swift test
-        # No --parallel: QuotaPaceLabelTests mutates the process-global
-        # LocalizationStore.activeLanguage byte and is .serialized within
-        # its suite; cross-suite parallelism is fine but not needed for
-        # an 8-second test run, and serial output is easier to read in CI.
-        run: swift test
+      - name: Validate PR changelog
+        if: github.event_name == 'pull_request'
+        run: python3 tools/validate-pr-changelog.py --base "${{ github.event.pull_request.base.sha }}" --head HEAD
+
+      - name: static QA checks
+        # Non-GUI gate: shell/Python helper tests, release-note format,
+        # whitespace checks, and the Swift test suite. This must not launch
+        # a QuotaMonitor.app instance. Visible UI validation is explicit:
+        # run an interactive QA setup locally, then use Computer Use.
+        run: ./qa/run-static.sh
 
       - name: swift build -c release (smoke)
         # Belt-and-suspenders check: tests run in debug, but release

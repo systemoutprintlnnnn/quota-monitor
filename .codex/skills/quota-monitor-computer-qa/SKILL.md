@@ -16,25 +16,27 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    git status --short --branch
    ```
 
-2. Run deterministic checks first:
+2. Run static checks first. This does not launch `QuotaMonitor.app`:
 
    ```sh
-   ./qa/run-all.sh
+   ./qa/run-static.sh
    ```
 
-   If this fails, inspect the failing command and artifact before using
-   Computer Use.
+   `./qa/run-all.sh` is an alias for the same static suite. If this fails,
+   inspect the failing command before launching any QA app instance.
 
-3. For fixture UI walkthroughs, launch:
+3. For visible UI work, launch an isolated setup app for Computer Use. The
+   setup script prepares artifacts; it is not a separate visible-app test
+   layer. For fixture UI walkthroughs, launch:
 
    ```sh
-   ./qa/run-interactive.sh
+   ./qa/prepare-computer-use-fixture.sh
    ```
 
    For realistic historical rendering with protected source data, launch:
 
    ```sh
-   ./qa/run-real-data-interactive.sh
+   ./qa/prepare-computer-use-real-data.sh
    ```
 
 4. Open the run's `computer-use-qa.md` and use its `Computer Use app target`
@@ -56,8 +58,10 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    ./qa/check-artifacts.sh <artifact-dir>
    ```
 
-7. Clean up with the printed `cleanup-interactive.sh` unless the user wants the
-   QA app left open.
+7. After Computer Use, run the printed `cleanup-computer-use.sh` unless the user
+   explicitly wants the QA app left open. The cleanup closes only QA-launched
+   QuotaMonitor processes and restores `/Applications/QuotaMonitor.app` if it
+   was running before the QA launch.
 
 ## Boundaries
 
@@ -83,11 +87,11 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
   run as a QA boundary failure.
 - If an installed QuotaMonitor process is also running, do not kill it while
   cleaning up QA. The QA cleanup targets only processes launched with the QA
-  config argument.
+  config argument, then restores the installed app if the run had displaced it.
 
 ## Report
 
 Report commands run, artifact directory, exact Computer Use app target,
 Computer Use observations by area, failures with screenshot or AX evidence,
 untested areas, cleanup state, and whether a real installed QuotaMonitor
-process was present.
+process was present/restored.

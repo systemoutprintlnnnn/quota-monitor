@@ -36,6 +36,22 @@ bottom of this doc).
      line in the Chinese file (the markdown→HTML joiner glues wrapped lines
      with a space, which would inject stray spaces between Chinese
      characters).
+   - Every PR after the previous tag should first update `## [Unreleased]`.
+     During release prep, move those entries into the new `## [X.Y.Z]` section
+     and leave a fresh empty `## [Unreleased]` for future PRs.
+     Pull-request CI enforces the bilingual changelog update for non-appcast
+     PRs; the generated `appcast/vX.Y.Z` PR is exempt because it only publishes
+     the release notes from the release PR.
+   - Each release section must begin with `#### Summary`: 1-4 short bullets
+     written for the update window. Keep the always-visible Summary focused on
+     what changed and why it matters, not implementation details.
+   - Detail sections must use the standard headings (`Added`, `Changed`,
+     `Fixed`, `Removed`, `Known limitation(s)` / `新增`, `变更`, `修复`, `移除`,
+     `已知限制`) and bullets shaped as `**Short title.** One concise sentence.`
+   - Before opening the release PR, run:
+     ```sh
+     python3 tools/validate-release-notes.py X.Y.Z
+     ```
    - Optional richer notes: `ReleaseNotes/X.Y.Z.en.html` +
      `ReleaseNotes/X.Y.Z.zh-Hans.html` override the changelog-derived HTML if
      present.
