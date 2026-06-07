@@ -56,8 +56,9 @@ final class UpdaterController {
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
 
-    init() {
-        let driver = CustomUserDriver()
+    init(onUpdateWindowClosed: @escaping @MainActor () -> Void = {}) {
+        let driver = CustomUserDriver(
+            onUpdateWindowClosed: onUpdateWindowClosed)
         self.userDriver = driver
 
         let bundle = Bundle.main

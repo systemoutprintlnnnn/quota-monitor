@@ -24,7 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Now that the migration has run (in QuotaMonitorApp.init), it's safe to
         // let Sparkle read UserDefaults. AppKit owns the four app windows (see
         // WindowManager); hand it the updater so Settings can wire "Check Now".
-        updater = UpdaterController()
+        updater = UpdaterController(
+            onUpdateWindowClosed: {
+                AppEnvironment.shared.demoteToAccessory()
+            })
         WindowManager.shared.configure(updater: updater)
 
         let controller = StatusItemController(

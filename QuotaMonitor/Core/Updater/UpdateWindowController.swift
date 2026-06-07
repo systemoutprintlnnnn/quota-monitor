@@ -10,9 +10,12 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private let state: UpdateWindowState
+    private let onWindowClosed: @MainActor () -> Void
 
-    init(state: UpdateWindowState) {
+    init(state: UpdateWindowState,
+         onWindowClosed: @escaping @MainActor () -> Void = {}) {
         self.state = state
+        self.onWindowClosed = onWindowClosed
         super.init()
     }
 
@@ -79,5 +82,6 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
     /// closed it or we did) so the next `show()` builds a fresh window.
     func windowWillClose(_ notification: Notification) {
         window = nil
+        onWindowClosed()
     }
 }

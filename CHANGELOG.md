@@ -31,8 +31,10 @@ window copy.
 - Release and PR checks are stricter while the default local QA path stays static
 - The test circuit now clearly separates static checks, Computer Use setup, visible UI walkthroughs, and artifact replay
 - Interactive QA cleanup no longer risks closing the user's installed QuotaMonitor app
+- App windows now open, focus, and return to menu-bar-only mode through a single AppKit window manager
 
 ### Changed
+- **AppKit window ownership.** Dashboard, Settings, onboarding, and the menu-bar recovery guide now share one AppKit window manager, making window opening and focusing more consistent.
 - **Static QA default.** `qa/run-all.sh` now delegates to `qa/run-static.sh` and no longer launches a new QuotaMonitor instance.
 - **Computer Use owns visible app validation.** The standard visible QA path is `qa/prepare-computer-use-fixture.sh` or `qa/prepare-computer-use-real-data.sh` followed by Computer Use.
 - **Testing circuit documentation.** `docs/local-qa.md`, `docs/computer-qa.md`, and the project QA skill now describe the same responsibilities: static gate, Computer Use setup, Computer Use walkthrough, and artifact replay.
@@ -43,6 +45,7 @@ window copy.
 - **PR changelog enforcement.** Pull-request CI now requires both English and Simplified-Chinese changelog updates for non-appcast PRs, then validates the section that will appear in the update window.
 
 ### Fixed
+- **Update-window Dock cleanup.** Closing the Sparkle update window now lets QuotaMonitor return to menu-bar-only mode when no other app window is open.
 - **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
 
 ### Removed

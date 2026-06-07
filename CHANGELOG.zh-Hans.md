@@ -28,8 +28,10 @@ appcast 中按系统语言切换的双语更新说明。
 - 发布和 PR 检查更严格，同时默认本地 QA 路径保持静态
 - 测试链路现在明确拆分静态检查、Computer Use 准备、可见 UI 走查和 artifact 复核
 - 交互式 QA 清理不再误关用户已安装的 QuotaMonitor
+- App 窗口现在通过统一的 AppKit 窗口管理器负责打开、聚焦和回到纯菜单栏模式
 
 ### 变更
+- **AppKit 窗口所有权。** Dashboard、Settings、onboarding 和菜单栏恢复指南现在共用一个 AppKit 窗口管理器，使窗口打开和聚焦行为更一致。
 - **静态 QA 默认入口。** `qa/run-all.sh` 现在转发到 `qa/run-static.sh`，不再启动新的 QuotaMonitor 实例。
 - **Computer Use 负责可见 app 验证。** 标准可见 QA 路径是 `qa/prepare-computer-use-fixture.sh` 或 `qa/prepare-computer-use-real-data.sh`，然后使用 Computer Use。
 - **测试链路文档。** `docs/local-qa.md`、`docs/computer-qa.md` 和项目 QA skill 现在用同一套职责描述：静态门禁、Computer Use 准备、Computer Use 走查和 artifact 复核。
@@ -40,6 +42,7 @@ appcast 中按系统语言切换的双语更新说明。
 - **PR 更新日志强制检查。** 非 appcast PR 的 CI 现在要求同时更新英文和简体中文 changelog，并校验会展示在更新窗口中的小节。
 
 ### 修复
+- **更新窗口关闭后的 Dock 清理。** Sparkle 更新窗口关闭后，如果没有其他 app 窗口打开，QuotaMonitor 现在会回到纯菜单栏模式。
 - **QA 清理后恢复已安装 app。** QA 清理现在会记录 `/Applications/QuotaMonitor.app` 运行前状态，只关闭 QA 启动的进程，并在需要时恢复已安装 app。
 
 ### 移除
