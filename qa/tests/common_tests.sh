@@ -34,6 +34,48 @@ test_write_defaults() {
     [[ "$providers_done" == "1" ]] || fail "provider onboarding default was $providers_done"
 }
 
+test_write_real_data_defaults_copies_user_preferences_with_safety_overrides() {
+    local source_home target_home source_domain target_domain report
+    source_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-source-defaults.XXXXXX")"
+    target_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-target-defaults.XXXXXX")"
+    source_domain="dev.tjzhou.QuotaMonitor.SourceTest.$RANDOM.$$"
+    target_domain="dev.tjzhou.QuotaMonitor.TargetTest.$RANDOM.$$"
+    report="$target_home/user-defaults-shadow.txt"
+    trap 'HOME="$source_home" defaults delete "$source_domain" >/dev/null 2>&1 || true; HOME="$target_home" defaults delete "$target_domain" >/dev/null 2>&1 || true; rm -rf "$source_home" "$target_home"' RETURN
+
+    HOME="$source_home" defaults write "$source_domain" app.language -string zh-Hans
+    HOME="$source_home" defaults write "$source_domain" settings.enabledProviders -array codex
+    HOME="$source_home" defaults write "$source_domain" settings.menuBarIconProviders -array codex
+    HOME="$source_home" defaults write "$source_domain" settings.keychainPolicy -string fallback
+    HOME="$source_home" defaults write "$source_domain" settings.developerModeEnabled -bool false
+    HOME="$source_home" defaults write "$source_domain" settings.mirrorClaudeKeychainToFile -bool true
+
+    qm_write_real_data_defaults \
+        "$target_home" \
+        "$target_domain" \
+        "$source_home" \
+        "$source_domain" \
+        "$report" \
+        1
+
+    local language keychain_policy developer_mode mirror_to_file providers icons
+    language="$(HOME="$target_home" defaults read "$target_domain" app.language)"
+    keychain_policy="$(HOME="$target_home" defaults read "$target_domain" settings.keychainPolicy)"
+    developer_mode="$(HOME="$target_home" defaults read "$target_domain" settings.developerModeEnabled)"
+    mirror_to_file="$(HOME="$target_home" defaults read "$target_domain" settings.mirrorClaudeKeychainToFile)"
+    providers="$(HOME="$target_home" defaults read "$target_domain" settings.enabledProviders)"
+    icons="$(HOME="$target_home" defaults read "$target_domain" settings.menuBarIconProviders)"
+
+    [[ "$language" == "zh-Hans" ]] || fail "copied language was $language"
+    grep -q 'codex' <<<"$providers" || fail "copied enabled provider missing: $providers"
+    grep -q 'codex' <<<"$icons" || fail "copied menu-bar icon provider missing: $icons"
+    [[ "$keychain_policy" == "never" ]] || fail "QA safety keychain policy was $keychain_policy"
+    [[ "$developer_mode" == "1" ]] || fail "QA developer mode was $developer_mode"
+    [[ "$mirror_to_file" == "0" ]] || fail "QA mirror-to-file should be disabled, was $mirror_to_file"
+    grep -q '^copied_user_defaults=true$' "$report" \
+        || fail "user defaults report did not record copied_user_defaults=true"
+}
+
 test_seed_fixtures() {
     local home
     home="$(mktemp -d "${TMPDIR:-/tmp}/qm-qa-fixtures.XXXXXX")"
@@ -160,6 +202,20 @@ test_computer_use_steps_keep_app_open() {
         || fail "Computer Use setup steps do not write a snapshot: $steps"
     [[ "$steps" != *"quit"* ]] \
         || fail "Computer Use setup steps must keep the app open: $steps"
+}
+
+test_real_data_computer_use_steps_preserve_user_settings() {
+    local steps
+    steps="$(qm_real_data_computer_use_steps)"
+
+    [[ "$steps" == *"open-dashboard"* ]] \
+        || fail "real-data steps do not open Dashboard: $steps"
+    [[ "$steps" == *"open-settings"* ]] \
+        || fail "real-data steps do not open Settings: $steps"
+    [[ "$steps" == *"snapshot"* ]] \
+        || fail "real-data steps do not write a snapshot: $steps"
+    [[ "$steps" != *"exercise-settings"* ]] \
+        || fail "real-data steps must not overwrite copied user settings: $steps"
 }
 
 test_steps_include_quit_detects_exact_step() {
@@ -579,13 +635,16 @@ test_write_real_data_computer_qa_brief_documents_shadow_boundary() {
         "dev.tjzhou.QuotaMonitor.RealDataQA.Test" \
         "/Volumes/SamsungDisk/Code/quota-monitor" \
         "$HOME/Library/Application Support/QuotaMonitor/quotamonitor.sqlite" \
-        "$dir/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite"
+        "$dir/home/Library/Application Support/QuotaMonitor/quotamonitor.sqlite" \
+        "$dir/artifacts/user-defaults-shadow.txt"
 
     assert_file "$brief"
     grep -q 'Real Data Shadow QA Brief' "$brief" \
         || fail "real-data brief title missing"
     grep -q 'copied SQLite snapshot' "$brief" \
         || fail "real-data brief does not explain DB shadow copy"
+    grep -q 'UserDefaults are copied into the isolated QA suite' "$brief" \
+        || fail "real-data brief does not explain copied user defaults"
     grep -q 'Do not copy real Codex or Claude credentials' "$brief" \
         || fail "real-data brief credential boundary missing"
     grep -q 'source DB fingerprint' "$brief" \
@@ -604,15 +663,15 @@ test_assert_real_data_artifact_contract() {
   "developerLogPath": "/tmp/qm-shadow/home/Library/Application Support/QuotaMonitor/Logs/quotamonitor-dev.log",
   "generatedAt": "2026-06-02T00:00:00Z",
   "pid": 123,
-  "qaSteps": ["open-dashboard", "open-settings", "exercise-settings", "snapshot"],
+  "qaSteps": ["open-dashboard", "open-settings", "snapshot"],
   "settings": {
     "developerModeEnabled": true,
-    "enabledProviders": ["claude"],
-    "language": "en",
-    "menuBarIconProviders": ["claude"],
-    "pollIntervalSeconds": 900,
-    "quotaDisplayMode": "remaining",
-    "showDockIconForWindows": false
+    "enabledProviders": ["codex", "claude"],
+    "language": "zh-Hans",
+    "menuBarIconProviders": ["codex"],
+    "pollIntervalSeconds": 300,
+    "quotaDisplayMode": "used",
+    "showDockIconForWindows": true
   },
   "statusItemVisibility": "visible",
   "windows": [
@@ -627,7 +686,6 @@ provider  sessions
 claude    10
 TEXT
     {
-        printf '{"event":"qa.settings.exercise","result":"success"}\n'
         printf '{"event":"qa.snapshot.write","result":"success"}\n'
     } >"$dir/quotamonitor-dev.log"
     printf 'PNGDATA' >"$dir/screen.png"
@@ -688,6 +746,7 @@ test_rejects_live_pricing_refresh_events() {
 }
 
 test_write_defaults
+test_write_real_data_defaults_copies_user_preferences_with_safety_overrides
 test_seed_fixtures
 test_write_launch_config
 test_write_boundary_manifest_documents_fixture_policy
@@ -695,6 +754,7 @@ test_assert_boundary_manifest_contract_rejects_wrong_mode
 test_launch_config_base64
 test_default_steps_include_settings_exercise
 test_computer_use_steps_keep_app_open
+test_real_data_computer_use_steps_preserve_user_settings
 test_steps_include_quit_detects_exact_step
 test_app_artifacts_dir_lives_under_qa_home
 test_static_entrypoint_does_not_launch_app

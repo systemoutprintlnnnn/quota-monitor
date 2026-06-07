@@ -37,6 +37,7 @@ window copy.
 - **AppKit window ownership.** Dashboard, Settings, onboarding, and the menu-bar recovery guide now share one AppKit window manager, making window opening and focusing more consistent.
 - **Static QA default.** `qa/run-all.sh` now delegates to `qa/run-static.sh` and no longer launches a new QuotaMonitor instance.
 - **Computer Use owns visible app validation.** The standard visible QA path is `qa/prepare-computer-use-fixture.sh` or `qa/prepare-computer-use-real-data.sh` followed by Computer Use.
+- **Real-data QA preserves visible preferences.** `qa/prepare-computer-use-real-data.sh` now copies the current QuotaMonitor UserDefaults into the isolated QA suite, while still overriding credential-sensitive settings.
 - **Testing circuit documentation.** `docs/local-qa.md`, `docs/computer-qa.md`, and the project QA skill now describe the same responsibilities: static gate, Computer Use setup, Computer Use walkthrough, and artifact replay.
 
 ### Added

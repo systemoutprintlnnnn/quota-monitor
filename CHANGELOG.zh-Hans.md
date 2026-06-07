@@ -34,6 +34,7 @@ appcast 中按系统语言切换的双语更新说明。
 - **AppKit 窗口所有权。** Dashboard、Settings、onboarding 和菜单栏恢复指南现在共用一个 AppKit 窗口管理器，使窗口打开和聚焦行为更一致。
 - **静态 QA 默认入口。** `qa/run-all.sh` 现在转发到 `qa/run-static.sh`，不再启动新的 QuotaMonitor 实例。
 - **Computer Use 负责可见 app 验证。** 标准可见 QA 路径是 `qa/prepare-computer-use-fixture.sh` 或 `qa/prepare-computer-use-real-data.sh`，然后使用 Computer Use。
+- **真实数据 QA 保留可见偏好。** `qa/prepare-computer-use-real-data.sh` 现在会把当前 QuotaMonitor UserDefaults 复制到隔离 QA suite，同时继续覆盖凭据敏感设置。
 - **测试链路文档。** `docs/local-qa.md`、`docs/computer-qa.md` 和项目 QA skill 现在用同一套职责描述：静态门禁、Computer Use 准备、Computer Use 走查和 artifact 复核。
 
 ### 新增
