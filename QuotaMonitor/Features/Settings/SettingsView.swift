@@ -16,17 +16,25 @@ struct SettingsView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(LocalizationStore.self) private var loc
     @State private var settings = SettingsStore.shared
+    @State private var tab: Tab = .general
+
+    enum Tab: Hashable {
+        case general
+        case advanced
+    }
 
     var body: some View {
-        TabView {
-            GeneralSettingsTab()
-                .environment(settings)
-                .environment(loc)
-                .tabItem { Label(L10n.settingsTabGeneral, systemImage: "gearshape") }
-            AdvancedSettingsTab()
-                .environment(settings)
-                .environment(env)
-                .tabItem { Label(L10n.settingsTabAdvanced, systemImage: "wrench.and.screwdriver") }
+        Group {
+            switch tab {
+            case .general:
+                GeneralSettingsTab()
+                    .environment(settings)
+                    .environment(loc)
+            case .advanced:
+                AdvancedSettingsTab()
+                    .environment(settings)
+                    .environment(env)
+            }
         }
         // Use min + ideal instead of a fixed size. The previous
         // `.frame(width:height:)` pinned the content to a single
@@ -42,6 +50,32 @@ struct SettingsView: View {
         // Form controls (Toggle / Picker / Stepper labels) are unaffected
         // because they render as control text, not Text.
         .textSelection(.enabled)
+        .toolbar {
+            // AppKit-hosted windows don't promote TabView tabs into the
+            // titlebar the same way SwiftUI Window scenes do, so keep the
+            // section switch as an explicit toolbar control.
+            ToolbarItem(placement: .principal) {
+                Picker("", selection: $tab) {
+                    Text(L10n.settingsTabGeneral).tag(Tab.general)
+                    Text(L10n.settingsTabAdvanced).tag(Tab.advanced)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    WindowCrossLinkActions.scene(
+                        env: env,
+                        openWindow: { WindowManager.shared.show($0) }
+                    ).openDashboardFromSettings()
+                } label: {
+                    Label(L10n.openDashboard, systemImage: "chart.bar.xaxis")
+                }
+                .quickHoverHelp(L10n.openDashboardTooltip)
+            }
+        }
         // Demote-on-close is owned by `AppWindowController.windowWillClose`
         // now that this is an AppKit-hosted window.
     }

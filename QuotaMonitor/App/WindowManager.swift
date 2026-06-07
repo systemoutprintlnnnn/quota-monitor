@@ -134,9 +134,6 @@ final class WindowManager {
             for (id, controller) in controllers {
                 guard let window = controller.window else { continue }
                 window.title = Self.windowTitle(for: id)
-                if id == "settings" {
-                    SettingsWindowChrome.applyLocalizedLabels(to: window)
-                }
             }
         } onChange: {
             Task { @MainActor [weak self] in self?.applyTitlesAndObserve() }
@@ -209,6 +206,10 @@ final class WindowManager {
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = style
         window.title = Self.windowTitle(for: id)
+        if id == "settings" {
+            window.titleVisibility = .visible
+            window.toolbarStyle = .automatic
+        }
         window.identifier = NSUserInterfaceItemIdentifier(id)
         window.isReleasedWhenClosed = false   // the controller owns the window
         if let minSize = config.minContentSize { window.contentMinSize = minSize }
@@ -219,10 +220,7 @@ final class WindowManager {
         // frame stands and is what gets saved. MUST come after setContentSize.
         if let autosave = config.autosaveName { window.setFrameAutosaveName(autosave) }
 
-        let retainedChrome = id == "settings"
-            ? SettingsWindowChrome.install(on: window)
-            : nil
-        let controller = AppWindowController(window: window, id: id, retainedChrome: retainedChrome)
+        let controller = AppWindowController(window: window, id: id)
         window.delegate = controller   // weak ref; `controllers` retains the controller
         return controller
     }
@@ -248,72 +246,6 @@ final class WindowManager {
     }
 }
 
-private final class SettingsWindowChrome: NSObject, NSToolbarDelegate {
-    private static let toolbarIdentifier = NSToolbar.Identifier("QuotaMonitorSettingsToolbar")
-    private static let dashboardItemIdentifier = NSToolbarItem.Identifier("QuotaMonitorSettingsOpenDashboard")
-
-    @MainActor
-    static func install(on window: NSWindow) -> SettingsWindowChrome {
-        let chrome = SettingsWindowChrome()
-        let toolbar = NSToolbar(identifier: toolbarIdentifier)
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        toolbar.displayMode = .iconOnly
-        toolbar.delegate = chrome
-
-        window.titleVisibility = .visible
-        window.toolbarStyle = .expanded
-        window.toolbar = toolbar
-        return chrome
-    }
-
-    @MainActor
-    static func applyLocalizedLabels(to window: NSWindow) {
-        guard let item = window.toolbar?.items.first(where: {
-            $0.itemIdentifier == dashboardItemIdentifier
-        }) else { return }
-        item.label = L10n.openDashboard
-        item.paletteLabel = L10n.openDashboard
-        item.toolTip = L10n.openDashboardTooltip
-        item.image = NSImage(
-            systemSymbolName: "chart.bar.xaxis",
-            accessibilityDescription: L10n.openDashboard)
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.dashboardItemIdentifier]
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, Self.dashboardItemIdentifier]
-    }
-
-    func toolbar(_ toolbar: NSToolbar,
-                 itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard itemIdentifier == Self.dashboardItemIdentifier else { return nil }
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        item.label = L10n.openDashboard
-        item.paletteLabel = L10n.openDashboard
-        item.toolTip = L10n.openDashboardTooltip
-        item.image = NSImage(
-            systemSymbolName: "chart.bar.xaxis",
-            accessibilityDescription: L10n.openDashboard)
-        item.target = self
-        item.action = #selector(openDashboard)
-        return item
-    }
-
-    @objc private func openDashboard(_ sender: Any?) {
-        Task { @MainActor in
-            WindowCrossLinkActions.scene(
-                env: AppEnvironment.shared,
-                openWindow: { WindowManager.shared.show($0) }
-            ).openDashboardFromSettings()
-        }
-    }
-}
-
 /// Hosts a feature view and re-mounts it on a language switch, mirroring the
 /// popover's `StatusItemController.HostedContent`. `L10n` reads are static, so
 /// SwiftUI can't track them; reading `loc.tickForceRedraw` in `.id(...)` forces
@@ -333,13 +265,9 @@ private struct HostedWindow<Content: View>: View {
 @MainActor
 final class AppWindowController: NSWindowController, NSWindowDelegate {
     private let id: String
-    // Retains AppKit objects that NSWindow stores weakly (for example an
-    // NSToolbar delegate).
-    private let retainedChrome: AnyObject?
 
-    init(window: NSWindow, id: String, retainedChrome: AnyObject? = nil) {
+    init(window: NSWindow, id: String) {
         self.id = id
-        self.retainedChrome = retainedChrome
         super.init(window: window)
     }
 
