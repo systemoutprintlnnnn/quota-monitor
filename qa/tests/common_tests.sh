@@ -600,6 +600,17 @@ test_warns_when_ax_snapshot_is_incomplete() {
         || fail "AX warning did not explain incomplete window capture"
 }
 
+test_ax_snapshot_accepts_localized_settings_title() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-qa-ax-localized.XXXXXX")"
+    trap 'rm -rf "$dir"' RETURN
+
+    printf 'Window: Quota Monitor\nWindow: 设置\n' >"$dir/ax-tree.txt"
+
+    qm_ax_snapshot_has_expected_windows "$dir/ax-tree.txt" \
+        || fail "localized Settings title was rejected"
+}
+
 test_copy_sqlite_snapshot_preserves_source() {
     local dir source copy before after source_count copy_count
     dir="$(mktemp -d "${TMPDIR:-/tmp}/qm-real-db-shadow.XXXXXX")"
@@ -692,7 +703,7 @@ TEXT
         printf '{"event":"qa.snapshot.write","result":"success"}\n'
     } >"$dir/quotamonitor-dev.log"
     printf 'PNGDATA' >"$dir/screen.png"
-    printf 'Window: Quota Monitor\nWindow: Settings\n' >"$dir/ax-tree.txt"
+    printf 'Window: Quota Monitor\nWindow: 设置\n' >"$dir/ax-tree.txt"
     printf 'source_unchanged=true\n' >"$dir/real-data-protection.txt"
     qm_write_boundary_manifest \
         "$dir/qa-boundary.json" \
@@ -774,6 +785,7 @@ test_real_data_computer_qa_brief_includes_exact_app_target
 test_assert_artifact_contract
 test_assert_artifact_contract_allows_incomplete_ax_with_warning
 test_warns_when_ax_snapshot_is_incomplete
+test_ax_snapshot_accepts_localized_settings_title
 test_copy_sqlite_snapshot_preserves_source
 test_write_real_data_computer_qa_brief_documents_shadow_boundary
 test_assert_real_data_artifact_contract

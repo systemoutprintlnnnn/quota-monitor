@@ -697,7 +697,7 @@ qm_ax_snapshot_has_expected_windows() {
     local ax_tree="$1"
     [[ -f "$ax_tree" ]] || return 1
     grep -q 'Quota Monitor' "$ax_tree" || return 1
-    grep -q 'Settings' "$ax_tree" || return 1
+    grep -Eq 'Settings|设置' "$ax_tree" || return 1
 }
 
 qm_warn_incomplete_ax_snapshot() {
