@@ -28,7 +28,7 @@ window copy.
 ## [Unreleased]
 
 #### Summary
-- Release and PR checks are stricter while the default local QA path stays static
+- Release and PR checks are stricter while draft/docs-only PRs avoid the macOS Swift runner
 - The test circuit now clearly separates static checks, Computer Use setup, visible UI walkthroughs, and artifact replay
 - Interactive QA cleanup no longer risks closing the user's installed QuotaMonitor app
 - App windows now open, focus, and return to menu-bar-only mode through a single AppKit window manager
@@ -39,6 +39,7 @@ window copy.
 - **Computer Use owns visible app validation.** The standard visible QA path is `qa/prepare-computer-use-fixture.sh` or `qa/prepare-computer-use-real-data.sh` followed by Computer Use.
 - **Real-data QA preserves visible preferences.** `qa/prepare-computer-use-real-data.sh` now copies the current QuotaMonitor UserDefaults into the isolated QA suite, while still overriding credential-sensitive settings.
 - **Testing circuit documentation.** `docs/local-qa.md`, `docs/computer-qa.md`, and the project QA skill now describe the same responsibilities: static gate, Computer Use setup, Computer Use walkthrough, and artifact replay.
+- **Gated macOS CI.** The required `swift-test` check now runs a fast summary job first and starts the macOS Swift suite only for app, test, QA, resource, package, tool, or workflow changes on ready PRs.
 
 ### Added
 - **Isolated Local QA harness.** Local QA runs now launch QuotaMonitor with an isolated profile, fixture data, redirected Codex/Claude homes, and machine-checkable artifacts for app state, database counts, logs, screenshots, and accessibility snapshots.
