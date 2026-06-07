@@ -1,10 +1,17 @@
-# Runs static QA checks plus a release-build smoke check on every push and PR.
+# Runs static QA checks plus a release-build smoke check when changes can affect
+# the Swift app, tests, QA scripts, or release tooling.
 #
-# Why a single workflow / single job: the project's main risk is upstream
-# wire-format drift (Codex CLI app-server JSON-RPC + Anthropic OAuth
-# usage payloads) silently breaking the decoder. The static QA suite includes
-# Swift tests as the canary, plus shell/Python checks for the local QA and
-# release-note helper scripts. It does not launch a GUI app instance.
+# Why gate the macOS job: macOS runners are slow to queue and expensive. Keep a
+# cheap Ubuntu change detector on every PR so the required `swift-test` check is
+# present, but skip the macOS job for draft PRs and docs/changelog-only changes.
+# Job-level skips report success, avoiding the Pending required-check problem
+# caused by workflow-level path filters.
+#
+# Why keep the macOS job broad when it runs: the project's main risk is upstream
+# wire-format drift (Codex CLI app-server JSON-RPC + Anthropic OAuth usage
+# payloads) silently breaking the decoder. The static QA suite includes Swift
+# tests as the canary, plus shell/Python checks for the local QA and release-note
+# helper scripts. It does not launch a GUI app instance.
 #
 # The release-build step is the second canary: Swift 6 strict concurrency
 # + release-mode optimization occasionally surface issues that debug
@@ -31,7 +38,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      swift-test: ${{ steps.filter.outputs.swift-test }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Detect whether macOS Swift tests are needed
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "swift-test=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${GITHUB_SHA}"
+          fi
+
+          if [[ -z "${BASE}" || "${BASE}" =~ ^0+$ ]]; then
+            echo "swift-test=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          mapfile -t changed < <(git diff --name-only "${BASE}" "${HEAD}")
+          printf 'Changed files:\n'
+          printf '  %s\n' "${changed[@]}"
+
+          for path in "${changed[@]}"; do
+            case "${path}" in
+              .github/workflows/tests.yml|\
+              Package.swift|Package.resolved|\
+              QuotaMonitor/*|QuotaMonitor/**|\
+              Tests/*|Tests/**|\
+              Resources/*|Resources/**|\
+              qa/*|qa/**|\
+              tools/*|tools/**)
+                echo "swift-test=true" >> "${GITHUB_OUTPUT}"
+                exit 0
+                ;;
+            esac
+          done
+
+          echo "swift-test=false" >> "${GITHUB_OUTPUT}"
+
   swift-test:
+    needs: changes
+    if: >-
+      ${{
+        needs.changes.outputs.swift-test == 'true' &&
+        (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      }}
     runs-on: macos-15
     timeout-minutes: 15
     steps:
