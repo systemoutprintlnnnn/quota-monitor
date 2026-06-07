@@ -88,6 +88,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             enabledProviders: settings.enabledProviders,
             rateLimits: env.latestRateLimits,
             claudeUsage: env.latestClaudeUsage,
+            codexQuota: env.dashboardSnapshot?.codexQuota,
             displayMode: settings.quotaDisplayMode)
         let style = settings.menuBarLabelStyle
 

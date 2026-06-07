@@ -165,7 +165,7 @@ final class WindowManager {
             config = WindowConfig(
                 resizable: true,
                 initialContentSize: NSSize(width: 900, height: 520),
-                minContentSize: NSSize(width: 620, height: 380),
+                minContentSize: NSSize(width: 820, height: 380),
                 // Keep the old SwiftUI Window(id:) autosave key so upgrading to
                 // AppKit-hosted windows preserves the user's existing frame.
                 autosaveName: Self.frameAutosaveName(for: id),
