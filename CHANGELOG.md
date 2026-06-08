@@ -12,9 +12,12 @@ These entries become both the GitHub Release notes and the Sparkle update
 window copy.
 
 - Start each release section with `#### Summary`: 1-4 plain, user-readable
-  bullets. These are always visible in the update window.
+  bullets. Generated Sparkle update notes render these as rich visual cards.
+  Write these bullets for a non-technical user who only needs to know what
+  feels better after updating. Avoid implementation, test, CI, PR, and release
+  plumbing terms in Summary.
 - Put details under `### Added`, `### Changed`, `### Fixed`, `### Removed`,
-  or `### Known limitation(s)`.
+  or `### Known limitation(s)`. These remain in the GitHub Release notes.
 - Start each detail bullet with a short bold title, then one concise sentence:
   `- **Short title.** What changed and why it matters.`
 - Keep implementation details, commit archaeology, and internal test evidence
@@ -27,11 +30,13 @@ window copy.
 
 ## [Unreleased]
 
+## [0.2.31] — 2026-06-08
+
 #### Summary
-- Release and PR checks are stricter, and the test circuit now separates static checks, Computer Use setup, visible UI walkthroughs, and artifact replay
-- Interactive QA cleanup no longer risks closing the user's installed QuotaMonitor app
-- App windows now open, focus, and return to menu-bar-only mode through a single AppKit window manager
-- Codex live quota refreshes avoid redundant automatic polls while manual refresh stays immediate
+- Windows open and switch more predictably, so Settings, Dashboard, and Help are easier to return to
+- Update prompts are clearer, with the important changes visible before you install
+- Quota numbers stay more useful when live data is temporarily unavailable
+- Refresh feels more responsive: clicking refresh updates right away, while background checks stay quieter
 
 ### Changed
 - **AppKit window ownership.** Dashboard, Settings, onboarding, and the menu-bar recovery guide now share one AppKit window manager, making window opening and focusing more consistent.

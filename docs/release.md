@@ -44,10 +44,16 @@ bottom of this doc).
      the release notes from the release PR.
    - Each release section must begin with `#### Summary`: 1-4 short bullets
      written for the update window. Keep the always-visible Summary focused on
-     what changed and why it matters, not implementation details.
+     what changed and why it matters to a non-technical user. Do not mention
+     implementation details, AppKit/SwiftUI/WebKit, QA, PR checks, CI,
+     artifacts, appcast, signing, notarization, or release workflow plumbing in
+     Summary.
    - Detail sections must use the standard headings (`Added`, `Changed`,
      `Fixed`, `Removed`, `Known limitation(s)` / `新增`, `变更`, `修复`, `移除`,
      `已知限制`) and bullets shaped as `**Short title.** One concise sentence.`
+     The generated Sparkle update window renders only the Summary as a rich
+     visual card layout; the detail sections remain in GitHub Release notes and
+     in optional richer HTML notes.
    - Before opening the release PR, run:
      ```sh
      python3 tools/validate-release-notes.py X.Y.Z

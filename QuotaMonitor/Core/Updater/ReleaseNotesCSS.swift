@@ -4,12 +4,13 @@ import Foundation
 /// custom update window's WKWebView.  All content is inline — no external
 /// resources needed.
 ///
-/// The HTML is structured as a two-tier layout:
-/// 1. **Summary** (``<div class="release-summary">``) — always visible,
-///    short bullets extracted from `#### Summary` in the changelog.
-/// 2. **Details** (``<div class="release-details">``) — hidden by default,
-///    expanded by a toggle button, contains the full `### Added / Fixed …`
-///    sections.
+/// Generated changelog notes now carry their own inline visual styling so old
+/// installed clients can render the same rich update page. The bundled CSS
+/// still supports an optional two-tier layout for custom HTML or explicit
+/// `changelog-to-html.py --format both` output:
+/// 1. **Summary** (``<div class="release-summary">``) — always visible.
+/// 2. **Details** (``<div class="release-details">``) — hidden by default and
+///    expanded by a toggle button.
 ///
 /// Animations use `IntersectionObserver` so items fade/slide in as they
 /// scroll into view.  `prefers-reduced-motion` disables all motion.
@@ -33,7 +34,7 @@ enum ReleaseNotesCSS {
     /// animation script injected.
     ///
     /// - Parameters:
-    ///   - body: The inner HTML (summary + details structure).
+    ///   - body: The inner HTML (summary, optionally with details).
     ///   - isDark: Whether to use the dark colour scheme.
     ///   - locale: The user's locale identifier (e.g. `"en"`, `"zh-Hans"`).
     static func wrapHTML(_ body: String, isDark: Bool, locale: String) -> String {

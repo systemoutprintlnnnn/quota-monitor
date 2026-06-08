@@ -118,6 +118,37 @@ class ValidateReleaseNotesTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Summary must contain 1-4 bullets", result.stderr)
 
+    def test_rejects_internal_jargon_in_summary(self):
+        result = self.run_validator(
+            """
+            # Changelog
+
+            ## [1.2.3] - 2026-06-03
+
+            #### Summary
+            - AppKit window ownership and QA artifact replay are stricter
+
+            ### Changed
+            - **Window handling.** Windows now open more consistently.
+            """,
+            """
+            # 更新日志
+
+            ## [1.2.3] - 2026-06-03
+
+            #### Summary
+            - 窗口打开和切换更稳定
+
+            ### 变更
+            - **窗口处理。** 窗口现在打开得更稳定。
+            """,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Summary bullet uses internal term 'AppKit'", result.stderr)
+        self.assertIn("Summary bullet uses internal term 'QA'", result.stderr)
+        self.assertIn("Summary bullet uses internal term 'artifact'", result.stderr)
+
     def test_rejects_wrapped_chinese_bullets(self):
         result = self.run_validator(
             """
