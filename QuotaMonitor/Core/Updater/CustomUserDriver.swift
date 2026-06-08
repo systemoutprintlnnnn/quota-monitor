@@ -17,7 +17,22 @@ import OSLog
 final class CustomUserDriver: NSObject, SPUUserDriver {
 
     private let state = UpdateWindowState()
-    private lazy var windowController = UpdateWindowController(state: state)
+    private let onUpdateWindowClosed: @MainActor () -> Void
+    private lazy var windowController = UpdateWindowController(
+        state: state,
+        onWindowClosed: onUpdateWindowClosed)
+
+    init(onUpdateWindowClosed: @escaping @MainActor () -> Void = {}) {
+        self.onUpdateWindowClosed = onUpdateWindowClosed
+        super.init()
+    }
+
+    /// Whether the update window is currently on screen. Forwarded up to
+    /// `UpdaterController` so `WindowManager` can count it as an app window.
+    /// Touching `windowController` forces its lazy init, but the controller
+    /// builds no `NSWindow` until `show()`, so this stays false (and cheap)
+    /// until an update is actually presented.
+    var isUpdateWindowVisible: Bool { windowController.isWindowVisible }
 
     private static let log = Logger(
         subsystem: Log.subsystem, category: "updater")
@@ -71,10 +86,14 @@ final class CustomUserDriver: NSObject, SPUUserDriver {
             "CFBundleShortVersionString"] as? String ?? "?"
         s.isCritical = appcastItem.isCriticalUpdate
 
-        // Build the full HTML document for the WKWebView.
+        // Build the full HTML document for the WKWebView — but only when the
+        // appcast item actually carried a description. An empty/missing
+        // description shows a graceful fallback instead of a blank WebView.
         let rawHTML = appcastItem.itemDescription ?? ""
-        s.releaseNotesHTML = ReleaseNotesCSS.wrapHTML(
-            rawHTML, isDark: isDarkMode, locale: localeID)
+        s.hasReleaseNotes = ReleaseNotesCSS.hasContent(rawHTML)
+        s.releaseNotesHTML = s.hasReleaseNotes
+            ? ReleaseNotesCSS.wrapHTML(rawHTML, isDark: isDarkMode, locale: localeID)
+            : ""
 
         s.phase = .updateAvailable
 
@@ -90,7 +109,9 @@ final class CustomUserDriver: NSObject, SPUUserDriver {
         // this method is typically not called.  If Sparkle does call
         // it (e.g. for a `releaseNotesURL` item), append the data.
         guard let text = String(data: downloadData.data,
-                                encoding: .utf8) else { return }
+                                encoding: .utf8),
+              ReleaseNotesCSS.hasContent(text) else { return }
+        state.hasReleaseNotes = true
         state.releaseNotesHTML = ReleaseNotesCSS.wrapHTML(
             text, isDark: isDarkMode, locale: localeID)
     }
