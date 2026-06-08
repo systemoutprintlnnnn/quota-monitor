@@ -52,6 +52,7 @@ window copy.
 - **Settings window layout after upgrade.** AppKit-hosted Settings now reuses the old Settings window frame key while keeping the pane width aligned with the original grouped Settings layout.
 - **Update-window Dock cleanup.** Closing the Sparkle update window now lets QuotaMonitor return to menu-bar-only mode when no other app window is open.
 - **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
+- **Update window no longer blanks on empty release notes.** When an appcast item ships no description, the update window now shows a short placeholder and keeps Install enabled instead of rendering an empty web view; the previous emptiness check ran on the always-wrapped HTML, so it never fired.
 
 ### Removed
 - **Old app E2E entrypoint.** `qa/run-local.sh` has been removed so the QA architecture has no separate visible-app test layer outside Computer Use.
