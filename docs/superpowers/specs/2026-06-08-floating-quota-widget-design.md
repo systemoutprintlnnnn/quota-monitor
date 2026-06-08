@@ -73,7 +73,7 @@ behavior, and localization rules as the menu bar and popover.
 The default widget should be small enough to sit near the menu bar without
 covering work:
 
-- fixed content size near `320 x 190`
+- fixed content size near `320 x 184`
 - compact header:
   - status dot
   - title: `Quota Monitor`
@@ -96,6 +96,45 @@ literally. A compact ring or filled capsule is enough, and it must use the same
 percentage direction as Settings. If the user selected `Remaining`, the widget
 must say `Remaining`, and progress should represent remaining. If the user
 selected `Used`, it must say `Used`, and progress should represent usage.
+
+### Visual Style
+
+The widget should read as a native QuotaMonitor utility HUD:
+
+- Overall size: about `320 x 184`. It should be smaller than the menu-bar
+  popover (`360` wide) and large enough for two quota rows without wrapping.
+- Shape: one rounded panel with the same radius family as existing provider
+  blocks, around 10 px. Do not nest cards inside the panel.
+- Background: `.regularMaterial` or `.thinMaterial` with a subtle separator
+  stroke. Avoid a saturated blue gradient, glow, or marketing-style glass orb.
+- Shadow: rely on the AppKit window shadow or one restrained shadow. The widget
+  should float, not look like a modal.
+- Typography:
+  - SF system fonts
+  - headline title, not hero text
+  - monospaced digits for percentages and countdowns
+  - one large headline percentage around 30-34 pt
+  - quota row labels in caption/callout sizes
+- Color:
+  - neutral material surface as the dominant color
+  - Codex identity uses the existing blue accent
+  - Claude identity uses the existing orange accent
+  - status uses the same quota severity family as `QuotaRow`: green, orange,
+    red
+  - no one-hue cyan/blue UI
+- Layout:
+  - top strip: status dot, title, refresh, pin, close
+  - body: compact circular/ring gauge on the left, 5h/7d rows on the right
+  - footer: plan/tier or stale/no-data hint only when it adds information
+- Controls:
+  - icon-only buttons, 22-24 px hit targets
+  - `arrow.clockwise`, `pin`/`pin.fill`, and `xmark` SF Symbols
+  - tooltips on every icon button
+- Collapsed tab:
+  - 12 px thick by 72 px long on vertical edges
+  - 72 px by 12 px on top/bottom edges
+  - material background with a status-colored inset strip
+  - no text; the tab is a recovery affordance, not a second widget
 
 ### Dragging, Edge Hide, And Close Semantics
 
@@ -137,15 +176,16 @@ Closing should be explicit:
 
 ### Status Levels
 
-Status is derived from used percentage, regardless of display direction:
+Status is derived from used percentage, regardless of display direction. Match
+the existing `QuotaRow` severity thresholds:
 
-- `ok`: worst visible used percentage below 70
-- `warning`: worst visible used percentage from 70 through 89
-- `danger`: worst visible used percentage 90 or above
+- `ok`: worst visible used percentage below 60
+- `warning`: worst visible used percentage from 60 through 84
+- `danger`: worst visible used percentage 85 or above
 - `unknown`: no visible provider window has a number
 
 The colors should match provider/status semantics already used by the popover:
-system green/yellow/red for status and provider accent colors for provider
+system green/orange/red for status and provider accent colors for provider
 identity. The status color is a small signal, not a full-background theme.
 
 ### Window Behavior

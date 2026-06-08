@@ -498,8 +498,8 @@ enum FloatingQuotaWidgetModel {
         let values = rows.flatMap { [$0.fiveHour.usedPercent, $0.sevenDay.usedPercent] }
             .compactMap { $0 }
         guard let worst = values.max() else { return .unknown }
-        if worst >= 90 { return .danger }
-        if worst >= 70 { return .warning }
+        if worst >= 85 { return .danger }
+        if worst >= 60 { return .warning }
         return .ok
     }
 }
@@ -608,17 +608,23 @@ struct FloatingQuotaWidgetView: View {
             content(snapshot)
         }
         .padding(14)
-        .frame(width: 320, height: 190)
+        .frame(width: 320, height: 184)
     }
 
     private func collapsedTab(_ snapshot: FloatingQuotaWidgetModel.Snapshot) -> some View {
         Button {
             actions.expand()
         } label: {
-            Rectangle()
-                .fill(color(for: snapshot.status))
-                .frame(width: collapsedTabSize.width,
-                       height: collapsedTabSize.height)
+            ZStack {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(.regularMaterial)
+                Capsule()
+                    .fill(color(for: snapshot.status))
+                    .frame(width: presentation.edge == .left || presentation.edge == .right ? 3 : 32,
+                           height: presentation.edge == .left || presentation.edge == .right ? 32 : 3)
+            }
+            .frame(width: collapsedTabSize.width,
+                   height: collapsedTabSize.height)
         }
         .buttonStyle(.plain)
         .help(L10n.floatingWidgetExpandTooltip)
@@ -660,13 +666,16 @@ struct FloatingQuotaWidgetView: View {
     private func content(_ snapshot: FloatingQuotaWidgetModel.Snapshot) -> some View {
         if let headline = snapshot.headline {
             HStack(alignment: .center, spacing: 14) {
-                ProgressView(value: headlineProgress(snapshot), total: 1) {
+                Gauge(value: headlineProgress(snapshot), in: 0...1) {
                     EmptyView()
                 } currentValueLabel: {
                     Text(headline.displayText)
-                        .font(.title.bold())
+                        .font(.system(size: 32, weight: .semibold, design: .rounded)
+                            .monospacedDigit())
                 }
-                .progressViewStyle(.linear)
+                .gaugeStyle(.accessoryCircularCapacity)
+                .tint(color(for: snapshot.status))
+                .frame(width: 76, height: 76)
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(snapshot.rows, id: \.id) { row in
                         providerRow(row)
@@ -702,7 +711,7 @@ struct FloatingQuotaWidgetView: View {
     private func color(for status: FloatingQuotaWidgetModel.Status) -> Color {
         switch status {
         case .ok: return .green
-        case .warning: return .yellow
+        case .warning: return .orange
         case .danger: return .red
         case .unknown: return .secondary
         }
@@ -762,14 +771,14 @@ struct FloatingQuotaWidgetControllerTests {
     @Test
     func initialPlacementUsesTopRightVisibleFrame() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let size = NSSize(width: 320, height: 190)
+        let size = NSSize(width: 320, height: 184)
         let origin = FloatingQuotaWidgetController.initialOrigin(
             widgetSize: size,
             visibleFrame: visible,
             padding: 18)
 
         #expect(origin.x == 1102)
-        #expect(origin.y == 692)
+        #expect(origin.y == 698)
     }
 
     @Test
@@ -790,7 +799,7 @@ struct FloatingQuotaWidgetControllerTests {
     @Test
     func detectsNearestScreenEdgeAtDragEnd() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let frame = NSRect(x: 5, y: 300, width: 320, height: 190)
+        let frame = NSRect(x: 5, y: 300, width: 320, height: 184)
 
         #expect(FloatingQuotaWidgetController.edgeAttachment(
             for: frame,
@@ -800,7 +809,7 @@ struct FloatingQuotaWidgetControllerTests {
     @Test
     func doesNotAttachWhenOutsideThreshold() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let frame = NSRect(x: 40, y: 300, width: 320, height: 190)
+        let frame = NSRect(x: 40, y: 300, width: 320, height: 184)
 
         #expect(FloatingQuotaWidgetController.edgeAttachment(
             for: frame,
@@ -810,7 +819,7 @@ struct FloatingQuotaWidgetControllerTests {
     @Test
     func collapsedLeftFrameLeavesThinVisibleTab() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let expanded = NSRect(x: 0, y: 300, width: 320, height: 190)
+        let expanded = NSRect(x: 0, y: 300, width: 320, height: 184)
         let collapsed = FloatingQuotaWidgetController.collapsedFrame(
             edge: .left,
             expandedFrame: expanded,
@@ -824,7 +833,7 @@ struct FloatingQuotaWidgetControllerTests {
     @Test
     func clampedExpandedFrameKeepsRecoveryAreaVisible() {
         let visible = NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let offscreen = NSRect(x: -500, y: 120, width: 320, height: 190)
+        let offscreen = NSRect(x: -500, y: 120, width: 320, height: 184)
         let clamped = FloatingQuotaWidgetController.clampedExpandedFrame(
             offscreen,
             visibleFrame: visible)
@@ -954,7 +963,7 @@ final class FloatingQuotaWidgetController: NSObject, NSWindowDelegate {
                 y: visibleFrame.maxY - widgetSize.height - padding)
     }
 
-    static let expandedSize = NSSize(width: 320, height: 190)
+    static let expandedSize = NSSize(width: 320, height: 184)
     static let visibleTabThickness: CGFloat = 12
     static let edgeSnapThreshold: CGFloat = 16
 
@@ -1069,7 +1078,7 @@ final class FloatingQuotaWidgetController: NSObject, NSWindowDelegate {
     private func makePanel() -> NSPanel {
         let hosting = NSHostingController(rootView: makeRootView())
         let panel = FloatingQuotaWidgetPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 190),
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 184),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false)
