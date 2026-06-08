@@ -80,7 +80,7 @@ MIN_OS="14.0"
 #      visual control (images, CSS animations, rich layouts).
 #   2. Fallback: tools/changelog-to-html.py extracts the [X.Y.Z]
 #      section from CHANGELOG.md / CHANGELOG.zh-Hans.md and converts
-#      markdown to inline HTML.
+#      the Summary bullets to a self-styled rich HTML page.
 #
 # Bilingual notes: we emit two <description xml:lang="…"> nodes — en
 # and zh-Hans. Sparkle picks the one matching the user's system

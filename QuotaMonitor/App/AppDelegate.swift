@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// guaranteed by the time `applicationDidFinishLaunching` fires.
     private var updater: UpdaterController!
     private var localQAController: LocalQAController?
+    private var updateWindowPreviewLauncher: UpdateWindowPreviewLauncher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = AppEnvironment.shared
@@ -80,6 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 statusItemController: controller)
             localQAController = qaController
             qaController.start()
+        }
+
+        if let preview = UpdateWindowPreviewLauncher.configuration() {
+            let launcher = UpdateWindowPreviewLauncher(configuration: preview)
+            updateWindowPreviewLauncher = launcher
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                launcher.show()
+            }
         }
     }
 

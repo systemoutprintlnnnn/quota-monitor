@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Validate changelog sections used as user-facing release notes.
 
-The Sparkle update window renders a short ``#### Summary`` first and hides
-the full ``###`` sections behind a details toggle. This checker keeps the
-authoring format predictable before a release ships.
+The Sparkle update window renders only the short ``#### Summary`` as a rich
+card layout by default. Full ``###`` sections remain for GitHub Release notes.
+This checker keeps the authoring format predictable before a release ships.
 """
 from __future__ import annotations
 
@@ -30,6 +30,29 @@ ALLOWED_HEADINGS = {
         "已知限制",
     },
 }
+
+SUMMARY_INTERNAL_TERMS = [
+    ("AppKit", re.compile(r"\bAppKit\b", re.I)),
+    ("SwiftUI", re.compile(r"\bSwiftUI\b", re.I)),
+    ("WebKit", re.compile(r"\bWebKit\b", re.I)),
+    ("Sparkle", re.compile(r"\bSparkle\b", re.I)),
+    ("appcast", re.compile(r"\bappcast\b", re.I)),
+    ("PR", re.compile(r"\bPR\b", re.I)),
+    ("QA", re.compile(r"\bQA\b", re.I)),
+    ("CI", re.compile(r"\bCI\b", re.I)),
+    ("Computer Use", re.compile(r"\bComputer Use\b", re.I)),
+    ("artifact", re.compile(r"\bartifacts?\b", re.I)),
+    ("harness", re.compile(r"\bharness\b", re.I)),
+    ("workflow", re.compile(r"\bworkflow\b", re.I)),
+    ("Developer ID", re.compile(r"\bDeveloper ID\b", re.I)),
+    ("notarization", re.compile(r"\bnotari[sz](?:e|ation|ed|ing)\b", re.I)),
+    ("codesign", re.compile(r"\bcodesign(?:ing)?\b", re.I)),
+    ("构建", re.compile(r"构建")),
+    ("工作流", re.compile(r"工作流")),
+    ("制品", re.compile(r"制品")),
+    ("公证", re.compile(r"公证")),
+    ("签名", re.compile(r"签名")),
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -133,6 +156,12 @@ def validate_summary(
     for bullet in bullets:
         if bullet.startswith("**"):
             issues.append(f"{file_name}: Summary bullets should be plain, not detailed bold entries")
+        for term, pattern in SUMMARY_INTERNAL_TERMS:
+            if pattern.search(bullet):
+                issues.append(
+                    f"{file_name}: Summary bullet uses internal term '{term}'; "
+                    "write update-window copy for non-technical users"
+                )
 
 
 def validate_details(
