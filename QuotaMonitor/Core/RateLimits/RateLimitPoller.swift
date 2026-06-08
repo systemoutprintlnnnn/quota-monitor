@@ -242,24 +242,42 @@ actor RateLimitPoller {
         return .seconds(max(1.0, remaining))
     }
 
+    /// Scan only the upstream RPC message for rate-limit signals when we
+    /// have one. `String(describing:)` of the whole error also serializes
+    /// the Swift type names, request ids, and any nested `data`, any of
+    /// which can carry a stray "429" that would wrongly trip a long cooldown.
+    private static func rateLimitProbeText(for error: any Error) -> String {
+        if let client = error as? AppServerClient.ClientError,
+           case .rpcError(let rpc) = client {
+            return rpc.message
+        }
+        if let rpc = error as? JSONRPCError {
+            return rpc.message
+        }
+        return String(describing: error)
+    }
+
     private static func isRateLimitError(_ error: any Error) -> Bool {
-        let text = String(describing: error)
-        return text.contains("429")
-            || text.localizedCaseInsensitiveContains("Too Many Requests")
+        let text = rateLimitProbeText(for: error)
+        if text.localizedCaseInsensitiveContains("Too Many Requests")
             || text.localizedCaseInsensitiveContains("rate-limited")
-            || text.localizedCaseInsensitiveContains("rate limited")
+            || text.localizedCaseInsensitiveContains("rate limited") {
+            return true
+        }
+        // A standalone HTTP 429 (e.g. "... failed: 429"), but not a "429"
+        // buried inside a larger number such as a byte offset (14290) or a
+        // request id — those must not be mistaken for rate limiting.
+        return firstMatch(#"(?<![0-9])429(?![0-9])"#, in: text) != nil
     }
 
     private static func retryAfterSeconds(from error: any Error) -> TimeInterval? {
-        let text = String(describing: error)
+        let text = rateLimitProbeText(for: error)
         let patterns = [
             #"(?i)retry[- ]?after[:= ]+([0-9]+(?:\.[0-9]+)?)"#,
             #"(?i)retry in ~?([0-9]+(?:\.[0-9]+)?)s"#
         ]
         for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            guard let match = regex.firstMatch(in: text, range: range),
+            guard let match = firstMatch(pattern, in: text),
                   match.numberOfRanges >= 2,
                   let capture = Range(match.range(at: 1), in: text),
                   let seconds = TimeInterval(text[capture])
@@ -267,6 +285,15 @@ actor RateLimitPoller {
             return seconds
         }
         return nil
+    }
+
+    private static func firstMatch(
+        _ pattern: String,
+        in text: String
+    ) -> NSTextCheckingResult? {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.firstMatch(in: text, range: range)
     }
 
     private static func withTimeout<R: Sendable>(

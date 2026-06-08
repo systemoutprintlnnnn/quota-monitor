@@ -272,4 +272,32 @@ struct RateLimitPollerTests {
         #expect(snapshots.all.count == 1)
         #expect(snapshots.all.first?.primary?.usedPercent == 12)
     }
+
+    @Test("an incidental '429' inside a larger number is not treated as rate limiting")
+    func incidentalDigitsDoNotTripCooldown() async throws {
+        // "14290" and "4291003" both embed the substring "429" but are not an
+        // HTTP 429. A naive contains("429") check would wrongly start a long
+        // cooldown and silently stall quota updates.
+        let mock = MockCodexRateLimitsFetcher(script: [
+            .failure(AppServerClient.ClientError.rpcError(
+                JSONRPCError(
+                    code: -32000,
+                    message: "decode failed: unexpected token at offset 14290 (request 4291003)",
+                    data: nil)))
+        ])
+        let db = try makeDatabase()
+        let snapshots = SnapshotBox()
+        let poller = makePoller(fetcher: mock, db: db, snapshots: snapshots)
+
+        let outcome = await poller.pollOnce()
+        let cooldown = await poller._cooldownUntilForTest
+        let count = await poller._consecutiveRateLimitsForTest
+
+        guard case .failure = outcome else {
+            Issue.record("a non-rate-limit error must surface as .failure, not a 429 cooldown")
+            return
+        }
+        #expect(cooldown == nil, "an incidental 429-like substring must not start a cooldown")
+        #expect(count == 0)
+    }
 }

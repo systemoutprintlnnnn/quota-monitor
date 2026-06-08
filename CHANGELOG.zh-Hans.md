@@ -50,7 +50,7 @@ appcast 中按系统语言切换的双语更新说明。
 - **升级后的设置窗口布局。** 由 AppKit 承载的 Settings 现在会复用旧 Settings 窗口的 frame key，同时保持与原本分组式设置页面一致的 pane 宽度。
 - **更新窗口关闭后的 Dock 清理。** Sparkle 更新窗口关闭后，如果没有其他 app 窗口打开，QuotaMonitor 现在会回到纯菜单栏模式。
 - **Codex 配额来源隔离。** Codex 配额卡片和历史曲线现在会忽略同一存储表中的 Claude OAuth 样本，避免不同 provider 的视图互相串数据。
-- **Codex 刷新诊断。** Codex rate-limit 刷新的 poller 路径现在会保留超时保护，失败操作会正确关闭 developer-log 操作记录，活跃的 429 冷却也会优先显示冷却原因，而不是普通自动轮询节流原因。
+- **Codex 刷新诊断。** Codex rate-limit 刷新的 poller 路径现在会保留超时保护，失败操作会正确关闭 developer-log 操作记录，活跃的 429 冷却也会优先显示冷却原因而不是普通自动轮询节流原因，并且只有真正的 HTTP 429 才会进入冷却（不再因为无关错误里恰好含有数字 429 而误判）。
 - **QA 清理后恢复已安装 app。** QA 清理现在会记录 `/Applications/QuotaMonitor.app` 运行前状态，只关闭 QA 启动的进程，并在需要时恢复已安装 app。
 - **更新窗口不再因空发布说明而空白。** 当 appcast 条目没有附带说明时，更新窗口现在会显示简短占位并保持“安装”可用，而不是渲染空白网页视图；此前的判空逻辑作用在恒不为空的包壳 HTML 上，因此从未生效。
 

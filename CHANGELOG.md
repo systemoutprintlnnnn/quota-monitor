@@ -53,7 +53,7 @@ window copy.
 - **Settings window layout after upgrade.** AppKit-hosted Settings now reuses the old Settings window frame key while keeping the pane width aligned with the original grouped Settings layout.
 - **Update-window Dock cleanup.** Closing the Sparkle update window now lets QuotaMonitor return to menu-bar-only mode when no other app window is open.
 - **Codex quota source isolation.** Codex quota cards and history now ignore Claude OAuth samples that share the same storage table, preventing provider views from crossing over.
-- **Codex refresh diagnostics.** Codex rate-limit refreshes keep a timeout guard on the poller path, failed operations now close their developer-log entry, and active 429 cooldowns report the cooldown reason before normal automatic-poll throttling.
+- **Codex refresh diagnostics.** Codex rate-limit refreshes keep a timeout guard on the poller path, failed operations now close their developer-log entry, active 429 cooldowns report the cooldown reason before normal automatic-poll throttling, and only a genuine HTTP 429 (not an unrelated error that merely contains the digits 429) starts a cooldown.
 - **Installed app restoration after QA cleanup.** QA cleanup now records whether `/Applications/QuotaMonitor.app` was already running, closes only QA-launched processes, and restores the installed app when needed.
 - **Update window no longer blanks on empty release notes.** When an appcast item ships no description, the update window now shows a short placeholder and keeps Install enabled instead of rendering an empty web view; the previous emptiness check ran on the always-wrapped HTML, so it never fired.
 
