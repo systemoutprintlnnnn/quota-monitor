@@ -69,16 +69,12 @@ correctly?", launch the real-data shadow mode instead:
 
 This still uses an isolated QA profile. It copies the real QuotaMonitor SQLite
 database into the QA home with SQLite backup, copies the current
-QuotaMonitor UserDefaults into the isolated QA suite when available, points
-the app at those copies, does not copy real Codex or Claude credentials,
-disables live Codex app-server and Claude OAuth polling, and writes
-`real-data-protection.txt` to prove the source database fingerprint did not
-change. Use this mode for visual checks that need realistic charts, sessions,
-history, model distribution, language, provider, and menu-bar settings.
-
-Set `QM_QA_COPY_USER_DEFAULTS=0` before launch if you intentionally want the
-old deterministic QA defaults instead of your current QuotaMonitor
-preferences.
+QuotaMonitor UserDefaults into the isolated QA suite, points the app at those
+copies, does not copy real Codex or Claude credentials, disables live Codex
+app-server and Claude OAuth polling, and writes `real-data-protection.txt` to
+prove the source database fingerprint did not change. It does not override
+product-visible settings after copying; use the fixture setup when deterministic
+QA defaults are more useful than your current QuotaMonitor preferences.
 
 To re-check an artifact directory later:
 
@@ -105,8 +101,8 @@ The setup scripts still perform checks before handing control to Computer Use:
 - Dashboard, Settings, menu-bar help, and the popover can be opened,
 - fixture Codex and Claude data import into isolated SQLite,
 - `qa-boundary.json` documents and passes the expected boundary contract,
-- Developer Mode writes the expected QA events,
-- the settings exercise applies the expected state,
+- fixture Developer Mode writes the expected QA events,
+- the fixture settings exercise applies the expected state,
 - screenshot and AX artifacts exist or record a permission warning.
 
 ## What Computer Use Verifies

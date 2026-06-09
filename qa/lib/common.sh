@@ -30,49 +30,10 @@ qm_write_defaults() {
     HOME="$home" defaults write "$domain" onboarding.lastVersion -string "$version"
     HOME="$home" defaults write "$domain" discoverability.firstRunPresentationShown -bool true
     HOME="$home" defaults write "$domain" settings.developerModeEnabled -bool true
-    HOME="$home" defaults write "$domain" settings.keychainPolicy -string never
+    HOME="$home" defaults write "$domain" settings.keychainPolicy -string fallback
     HOME="$home" defaults write "$domain" settings.showDockIconForWindows -bool true
     HOME="$home" defaults write "$domain" settings.enabledProviders -array codex claude
     HOME="$home" defaults write "$domain" settings.menuBarIconProviders -array codex claude
-}
-
-qm_truthy() {
-    case "${1:-}" in
-        1|true|TRUE|yes|YES|on|ON) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-qm_defaults_key_exists() {
-    local home="$1"
-    local domain="$2"
-    local key="$3"
-    HOME="$home" defaults read "$domain" "$key" >/dev/null 2>&1
-}
-
-qm_write_qa_safety_defaults() {
-    local home="$1"
-    local domain="${2:-dev.tjzhou.QuotaMonitor.QA}"
-    local version
-    version="$(qm_app_version)"
-
-    mkdir -p "$home/Library/Preferences"
-    HOME="$home" defaults write "$domain" onboarding.providersDone -bool true
-    HOME="$home" defaults write "$domain" onboarding.lastVersion -string "$version"
-    HOME="$home" defaults write "$domain" discoverability.firstRunPresentationShown -bool true
-    HOME="$home" defaults write "$domain" settings.developerModeEnabled -bool true
-    HOME="$home" defaults write "$domain" settings.keychainPolicy -string never
-    HOME="$home" defaults write "$domain" settings.mirrorClaudeKeychainToFile -bool false
-
-    if ! qm_defaults_key_exists "$home" "$domain" app.language; then
-        HOME="$home" defaults write "$domain" app.language -string en
-    fi
-    if ! qm_defaults_key_exists "$home" "$domain" settings.enabledProviders; then
-        HOME="$home" defaults write "$domain" settings.enabledProviders -array codex claude
-    fi
-    if ! qm_defaults_key_exists "$home" "$domain" settings.menuBarIconProviders; then
-        HOME="$home" defaults write "$domain" settings.menuBarIconProviders -array codex claude
-    fi
 }
 
 qm_copy_user_defaults_to_qa_suite() {
@@ -83,6 +44,7 @@ qm_copy_user_defaults_to_qa_suite() {
     local tmp_plist
 
     mkdir -p "$target_home/Library/Preferences"
+    HOME="$source_home" defaults read "$source_domain" >/dev/null 2>&1 || return 1
     tmp_plist="$(mktemp "${TMPDIR:-/tmp}/qm-user-defaults.XXXXXX.plist")"
     if ! HOME="$source_home" defaults export "$source_domain" "$tmp_plist" >/dev/null 2>&1; then
         rm -f "$tmp_plist"
@@ -101,34 +63,27 @@ qm_write_real_data_defaults() {
     local source_home="$3"
     local source_domain="$4"
     local report_path="$5"
-    local copy_user_defaults="${6:-1}"
     local copied="false"
 
-    if qm_truthy "$copy_user_defaults"; then
-        if qm_copy_user_defaults_to_qa_suite \
-            "$source_home" \
-            "$home" \
-            "$source_domain" \
-            "$domain"; then
-            copied="true"
-        else
-            qm_write_defaults "$home" "$domain"
-        fi
-    else
-        qm_write_defaults "$home" "$domain"
+    if qm_copy_user_defaults_to_qa_suite \
+        "$source_home" \
+        "$home" \
+        "$source_domain" \
+        "$domain"; then
+        copied="true"
     fi
-
-    qm_write_qa_safety_defaults "$home" "$domain"
 
     {
         printf 'source_home=%s\n' "$source_home"
         printf 'source_domain=%s\n' "$source_domain"
         printf 'target_home=%s\n' "$home"
         printf 'target_domain=%s\n' "$domain"
-        printf 'copy_requested=%s\n' "$copy_user_defaults"
+        printf 'copy_requested=1\n'
         printf 'copied_user_defaults=%s\n' "$copied"
-        printf 'safety_overrides=developerModeEnabled,keychainPolicy,mirrorClaudeKeychainToFile,onboarding\n'
+        printf 'safety_overrides=none\n'
     } >"$report_path"
+
+    [[ "$copied" == "true" ]]
 }
 
 qm_seed_fixtures() {
@@ -421,10 +376,10 @@ qm_write_real_data_computer_qa_brief() {
         printf 'The app is running against the shadow DB under the isolated QA home. The original DB path is never passed to the app.\n\n'
         printf '## Data Boundary\n\n'
         printf '%s\n' '- The source database was copied with a SQLite backup into the QA home before launch.'
-        printf '%s\n' '- QuotaMonitor UserDefaults are copied into the isolated QA suite when available, then QA safety overrides are applied.'
+        printf '%s\n' '- QuotaMonitor UserDefaults are copied into the isolated QA suite without changing product-visible preferences.'
         printf '%s\n' '- Do not copy real Codex or Claude credentials into this profile.'
         printf '%s\n' '- CODEX_HOME points at the QA home, not the real ~/.codex directory.'
-        printf '%s\n' '- Keychain policy is set to never, so the app should not request real Claude credentials.'
+        printf '%s\n' '- Live external sources are disabled in Local QA, so the app should not request real Claude credentials.'
         printf '%s\n\n' '- After QA, verify the source DB fingerprint did not change.'
         printf '## Walkthrough\n\n'
         printf '%s\n' '- Dashboard: verify real-data Forecast, Trends, Activity, and Composition render without blank primary panels.'
@@ -833,7 +788,6 @@ qm_assert_real_data_artifact_contract() {
         echo "error: settings window was not captured in real-data QA state" >&2
         return 1
     }
-    qm_assert_plutil_equals "$state" "settings.developerModeEnabled" "true"
     qm_plutil_raw "settings.menuBarLabelStyle" "$state" >/dev/null || {
         echo "error: menu-bar label style missing from real-data QA state" >&2
         return 1
@@ -848,14 +802,6 @@ qm_assert_real_data_artifact_contract() {
         return 1
     }
 
-    [[ -f "$dev_log" ]] || {
-        echo "error: missing Developer Mode log artifact: $dev_log" >&2
-        return 1
-    }
-    grep -q '"event":"qa.snapshot.write"' "$dev_log" || {
-        echo "error: snapshot write event missing from real-data Developer Mode log" >&2
-        return 1
-    }
     qm_assert_no_external_data_source_events "$artifacts"
     qm_assert_no_real_provider_paths_leaked "$artifacts"
 

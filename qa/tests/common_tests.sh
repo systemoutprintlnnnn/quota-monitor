@@ -30,11 +30,11 @@ test_write_defaults() {
 
     [[ "$language" == "en" ]] || fail "language default was $language"
     [[ "$developer_mode" == "1" ]] || fail "developer mode default was $developer_mode"
-    [[ "$keychain_policy" == "never" ]] || fail "keychain policy default was $keychain_policy"
+    [[ "$keychain_policy" == "fallback" ]] || fail "keychain policy default was $keychain_policy"
     [[ "$providers_done" == "1" ]] || fail "provider onboarding default was $providers_done"
 }
 
-test_write_real_data_defaults_copies_user_preferences_with_safety_overrides() {
+test_write_real_data_defaults_copies_user_preferences_without_overrides() {
     local source_home target_home source_domain target_domain report
     source_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-source-defaults.XXXXXX")"
     target_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-target-defaults.XXXXXX")"
@@ -69,11 +69,38 @@ test_write_real_data_defaults_copies_user_preferences_with_safety_overrides() {
     [[ "$language" == "zh-Hans" ]] || fail "copied language was $language"
     grep -q 'codex' <<<"$providers" || fail "copied enabled provider missing: $providers"
     grep -q 'codex' <<<"$icons" || fail "copied menu-bar icon provider missing: $icons"
-    [[ "$keychain_policy" == "never" ]] || fail "QA safety keychain policy was $keychain_policy"
-    [[ "$developer_mode" == "1" ]] || fail "QA developer mode was $developer_mode"
-    [[ "$mirror_to_file" == "0" ]] || fail "QA mirror-to-file should be disabled, was $mirror_to_file"
+    [[ "$keychain_policy" == "fallback" ]] || fail "copied keychain policy was $keychain_policy"
+    [[ "$developer_mode" == "0" ]] || fail "copied developer mode was $developer_mode"
+    [[ "$mirror_to_file" == "1" ]] || fail "copied mirror-to-file was $mirror_to_file"
     grep -q '^copied_user_defaults=true$' "$report" \
         || fail "user defaults report did not record copied_user_defaults=true"
+    grep -q '^safety_overrides=none$' "$report" \
+        || fail "real-data defaults should not apply product-setting overrides"
+}
+
+test_write_real_data_defaults_fails_when_user_preferences_cannot_be_copied() {
+    local source_home target_home source_domain target_domain report
+    source_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-source-defaults-missing.XXXXXX")"
+    target_home="$(mktemp -d "${TMPDIR:-/tmp}/qm-target-defaults-missing.XXXXXX")"
+    source_domain="dev.tjzhou.QuotaMonitor.MissingSourceTest.$RANDOM.$$"
+    target_domain="dev.tjzhou.QuotaMonitor.MissingTargetTest.$RANDOM.$$"
+    report="$target_home/user-defaults-shadow.txt"
+    trap 'HOME="$target_home" defaults delete "$target_domain" >/dev/null 2>&1 || true; rm -rf "$source_home" "$target_home"' RETURN
+
+    if qm_write_real_data_defaults \
+        "$target_home" \
+        "$target_domain" \
+        "$source_home" \
+        "$source_domain" \
+        "$report"; then
+        fail "real-data defaults silently fell back when user preferences were missing"
+    fi
+
+    grep -q '^copied_user_defaults=false$' "$report" \
+        || fail "failed copy report did not record copied_user_defaults=false"
+    if HOME="$target_home" defaults read "$target_domain" settings.developerModeEnabled >/dev/null 2>&1; then
+        fail "real-data defaults wrote fallback QA settings after copy failure"
+    fi
 }
 
 test_seed_fixtures() {
@@ -314,6 +341,20 @@ test_standard_test_circuit_is_documented() {
         || fail "testing doc should name fixture Computer Use setup entrypoint"
     grep -q './qa/prepare-computer-use-real-data.sh' "$doc" \
         || fail "testing doc should name real-data Computer Use setup entrypoint"
+}
+
+test_real_data_qa_does_not_offer_deterministic_defaults_fallback() {
+    if grep -q 'QM_QA_COPY_USER_DEFAULTS' \
+        "$ROOT_DIR/qa/prepare-computer-use-real-data.sh" \
+        "$ROOT_DIR/docs/local-qa.md" \
+        "$ROOT_DIR/docs/computer-qa.md" \
+        "$ROOT_DIR/.codex/skills/quota-monitor-computer-qa/SKILL.md"; then
+        fail "real-data QA should not offer a deterministic-defaults fallback"
+    fi
+    if sed -n '/qm_write_real_data_defaults()/,/^}/p' "$ROOT_DIR/qa/lib/common.sh" \
+        | grep -q 'qm_write_defaults'; then
+        fail "real-data defaults should not fall back to fixture defaults"
+    fi
 }
 
 test_standard_qa_docs_do_not_recommend_run_local() {
@@ -678,7 +719,7 @@ test_assert_real_data_artifact_contract() {
   "pid": 123,
   "qaSteps": ["open-dashboard", "open-settings", "snapshot"],
   "settings": {
-    "developerModeEnabled": true,
+    "developerModeEnabled": false,
     "enabledProviders": ["codex", "claude"],
     "language": "zh-Hans",
     "menuBarIconProviders": ["codex"],
@@ -699,9 +740,6 @@ provider  sessions
 --------  --------
 claude    10
 TEXT
-    {
-        printf '{"event":"qa.snapshot.write","result":"success"}\n'
-    } >"$dir/quotamonitor-dev.log"
     printf 'PNGDATA' >"$dir/screen.png"
     printf 'Window: Quota Monitor\nWindow: 设置\n' >"$dir/ax-tree.txt"
     printf 'source_unchanged=true\n' >"$dir/real-data-protection.txt"
@@ -787,7 +825,8 @@ test_rejects_live_pricing_refresh_events() {
 }
 
 test_write_defaults
-test_write_real_data_defaults_copies_user_preferences_with_safety_overrides
+test_write_real_data_defaults_copies_user_preferences_without_overrides
+test_write_real_data_defaults_fails_when_user_preferences_cannot_be_copied
 test_seed_fixtures
 test_write_launch_config
 test_write_boundary_manifest_documents_fixture_policy
@@ -803,6 +842,7 @@ test_obsolete_local_e2e_entrypoint_is_removed
 test_computer_use_setup_entrypoints_are_role_named
 test_computer_use_setup_language_is_consistent
 test_standard_test_circuit_is_documented
+test_real_data_qa_does_not_offer_deterministic_defaults_fallback
 test_standard_qa_docs_do_not_recommend_run_local
 test_write_computer_qa_brief
 test_write_computer_use_cleanup_script
