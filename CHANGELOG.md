@@ -32,10 +32,10 @@ window copy.
 
 #### Summary
 - Dashboard's tool selector now stays neatly in the title bar without crowding the window buttons
-- Claude settings now explain credential choices and Keychain prompts more clearly
+- Claude settings now hide the credential-source picker and offer recovery only when automatic refresh is disabled
 
 ### Changed
-- **Claude credential settings.** Advanced settings now label automatic, file-only, and disk-cache choices in plain language and warn when file-only mode can stop live quota refreshes.
+- **Claude credential settings.** Advanced settings now use automatic Claude credential refresh by default, hide the file-only/Keychain picker from normal use, and show a restore button only when a saved file-only mode can stop live quota refreshes.
 
 ### Fixed
 - **Dashboard filter layout.** The title-bar tool selector now uses a stable labeled menu, preventing it from collapsing into a tiny control or overlapping the window title after opening or moving the window.

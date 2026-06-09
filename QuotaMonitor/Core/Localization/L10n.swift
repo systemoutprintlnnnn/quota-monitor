@@ -748,8 +748,8 @@ enum L10n {
     }
 
     static var claudeOAuthExplanation: String {
-        t(en: "QuotaMonitor needs Claude Code credentials to refresh Claude live quotas. Recommended automatic mode reads the local Claude file first, then uses an authorized Keychain item when the file is missing or stale.",
-          zh: "QuotaMonitor 需要 Claude Code 凭据来刷新 Claude 实时配额。推荐使用自动模式：优先读取 Claude 本地文件，缺失或过期时再读取已授权的钥匙串项。")
+        t(en: "QuotaMonitor automatically reads the local Claude file first, then uses an authorized Keychain item when the file is missing or stale.",
+          zh: "QuotaMonitor 会自动优先读取 Claude 本地文件；文件缺失或过期时，再读取已授权的钥匙串项。")
     }
     static var keychainPolicyLabel: String { t(en: "Claude credential source", zh: "Claude 凭据来源") }
     static var keychainPolicyFallback: String {
@@ -760,8 +760,11 @@ enum L10n {
         t(en: "File only (no Keychain)", zh: "仅文件（不读取钥匙串）")
     }
     static var claudeCredentialFileOnlyWarning: String {
-        t(en: "File-only mode disables Keychain reads. Claude live quotas will stop refreshing if ~/.claude/.credentials.json is missing or expired.",
-          zh: "仅文件模式会禁用钥匙串读取。如果 ~/.claude/.credentials.json 缺失或过期，Claude 实时配额会停止刷新。")
+        t(en: "Automatic credential refresh is disabled. Claude live quotas will stop refreshing if ~/.claude/.credentials.json is missing or expired.",
+          zh: "自动凭据刷新已停用。如果 ~/.claude/.credentials.json 缺失或过期，Claude 实时配额会停止刷新。")
+    }
+    static var restoreAutomaticClaudeCredentialsMode: String {
+        t(en: "Restore automatic mode", zh: "恢复自动模式")
     }
 
     // polling
