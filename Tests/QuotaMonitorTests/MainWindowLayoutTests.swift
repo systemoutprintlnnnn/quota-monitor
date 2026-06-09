@@ -9,8 +9,8 @@ struct MainWindowLayoutTests {
         let source = try Self.source(named: "QuotaMonitor/Features/MainWindow/MainWindowView.swift")
 
         #expect(source.contains("ToolbarItem(placement: .navigation)"))
-        #expect(source.contains("providerToolbarFilter"))
-        #expect(!source.contains("Picker(\"\", selection: selection)"))
+        #expect(source.contains("providerToolbarFilter(selection: $env.providerFilter)"))
+        #expect(!source.contains("Picker(\"\", selection: $env.providerFilter)"))
         #expect(!source.contains("line.3.horizontal.decrease.circle"))
     }
 
