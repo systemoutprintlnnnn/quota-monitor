@@ -14,10 +14,9 @@ import Testing
 ///     swap to 天/小时/分 under zh).
 ///
 /// `LocalizationStore.activeLanguage` is the lock-guarded read path used
-/// by `L10n.t`. We flip it directly via `activeLanguageBytes.withLock`
-/// (the same primitive that `set(_:)` uses on MainActor) so we don't
-/// have to bring up the @Observable singleton, and we restore the
-/// previous value in a defer to keep tests order-independent.
+/// by `L10n.t`. Tests switch it through `LocalizationTestSupport` so all
+/// language-mutating suites share one process-wide serialization point,
+/// and the previous value is restored after each assertion block.
 ///
 /// **Why `.serialized`.** swift-testing parallelizes tests within a suite
 /// by default. Because all tests here mutate the process-global
@@ -28,14 +27,6 @@ import Testing
 struct QuotaPaceLabelTests {
 
     // MARK: helpers
-
-    private func withLanguage<T>(_ lang: LocalizationStore.Language,
-                                 _ body: () -> T) -> T {
-        let previous = LocalizationStore.activeLanguage
-        LocalizationStore.activeLanguageBytes.withLock { $0 = lang }
-        defer { LocalizationStore.activeLanguageBytes.withLock { $0 = previous } }
-        return body()
-    }
 
     // MARK: cold-start gating
 
@@ -64,13 +55,13 @@ struct QuotaPaceLabelTests {
 
     @Test("ratio in [0.85, 1.15] reads 'On pace' / '节奏正常'")
     func onPaceBothLanguages() {
-        let en = withLanguage(.english) {
+        let en = LocalizationTestSupport.withLanguage(.english) {
             QuotaPaceLabel.make(usedPercent: 25, paceRatio: 1.0, timeUntilReset: 3600)
         }
         #expect(en?.text == "On pace")
         #expect(en?.severity == .neutral)
 
-        let zh = withLanguage(.simplifiedChinese) {
+        let zh = LocalizationTestSupport.withLanguage(.simplifiedChinese) {
             QuotaPaceLabel.make(usedPercent: 25, paceRatio: 1.0, timeUntilReset: 3600)
         }
         #expect(zh?.text == "节奏正常")
@@ -86,7 +77,7 @@ struct QuotaPaceLabelTests {
         // 2*timeUntilReset − 1*timeUntilReset = timeUntilReset → exactly at
         // reset → projection guard rejects it. Use ratio=1.8 instead so the
         // ETA lands strictly inside the remaining window.
-        let r = withLanguage(.english) {
+        let r = LocalizationTestSupport.withLanguage(.english) {
             QuotaPaceLabel.make(usedPercent: 50, paceRatio: 1.8, timeUntilReset: 3600)
         }
         // 80% deficit → "80% in deficit · Runs out in …"
@@ -96,7 +87,7 @@ struct QuotaPaceLabelTests {
 
     @Test("Chinese deficit-with-eta uses 超出节奏 N% · 预计 X后耗尽 + 中文单位")
     func deficitWithEtaChinese() {
-        let r = withLanguage(.simplifiedChinese) {
+        let r = LocalizationTestSupport.withLanguage(.simplifiedChinese) {
             QuotaPaceLabel.make(usedPercent: 50, paceRatio: 1.8, timeUntilReset: 3600)
         }
         let txt = r?.text ?? ""
@@ -131,13 +122,13 @@ struct QuotaPaceLabelTests {
         // produce an ETA. This branch is rare but reachable; pin both
         // languages so the bare-prefix path never reverts to a hardcoded
         // English literal.
-        let en = withLanguage(.english) {
+        let en = LocalizationTestSupport.withLanguage(.english) {
             QuotaPaceLabel.make(usedPercent: 100, paceRatio: 1.5, timeUntilReset: 3600)
         }
         #expect(en?.text == "50% in deficit")
         #expect(en?.severity == .warning)
 
-        let zh = withLanguage(.simplifiedChinese) {
+        let zh = LocalizationTestSupport.withLanguage(.simplifiedChinese) {
             QuotaPaceLabel.make(usedPercent: 100, paceRatio: 1.5, timeUntilReset: 3600)
         }
         #expect(zh?.text == "超出节奏 50%")
@@ -148,13 +139,13 @@ struct QuotaPaceLabelTests {
     @Test("ratio < 0.85 reads 'X% in reserve' / '节余 X%'")
     func reserveBothLanguages() {
         // ratio=0.61 → 39% reserve (matches user-reported screenshot value)
-        let en = withLanguage(.english) {
+        let en = LocalizationTestSupport.withLanguage(.english) {
             QuotaPaceLabel.make(usedPercent: 30, paceRatio: 0.61, timeUntilReset: 3600)
         }
         #expect(en?.text == "39% in reserve")
         #expect(en?.severity == .good)
 
-        let zh = withLanguage(.simplifiedChinese) {
+        let zh = LocalizationTestSupport.withLanguage(.simplifiedChinese) {
             QuotaPaceLabel.make(usedPercent: 30, paceRatio: 0.61, timeUntilReset: 3600)
         }
         #expect(zh?.text == "慢于节奏 39%")
@@ -165,7 +156,7 @@ struct QuotaPaceLabelTests {
 
     @Test("percent rounds (not truncates): ratio 1.789 → '79%' not '78%'")
     func percentRoundingNotTruncation() {
-        let r = withLanguage(.english) {
+        let r = LocalizationTestSupport.withLanguage(.english) {
             QuotaPaceLabel.make(usedPercent: 50, paceRatio: 1.789, timeUntilReset: 3600)
         }
         // The user's reported screenshot showed "79% in deficit"; truncation

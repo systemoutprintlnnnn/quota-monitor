@@ -40,10 +40,9 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
    ```
 
    This path copies the current QuotaMonitor UserDefaults into the isolated QA
-   suite by default, then applies QA safety overrides. Use
-   `QM_QA_COPY_USER_DEFAULTS=0 ./qa/prepare-computer-use-real-data.sh` only when
-   deterministic QA defaults are more useful than the installed app's visible
-   configuration.
+   suite without applying product-visible setting overrides. If those
+   preferences cannot be copied, use the fixture setup instead of falling back
+   to generic defaults.
 
 4. Open the run's `computer-use-qa.md` and use its `Computer Use app target`
    exactly. Do not target by bare name `QuotaMonitor` or only by bundle id:
@@ -76,8 +75,8 @@ Use this project skill for QuotaMonitor local QA and visible-behavior checks in
 - For real-data shadow runs, verify `real-data-protection.txt` contains
   `source_unchanged=true`.
 - For real-data shadow runs, inspect `user-defaults-shadow.txt`; the normal
-  realistic path should show `copied_user_defaults=true` while still keeping
-  credentials not copied.
+  realistic path should show `copied_user_defaults=true` and
+  `safety_overrides=none` while still keeping credentials not copied.
 - Do not use real Codex or Claude credentials.
 - Ask before uninstall, export CSV, reveal files, sync pricing, check updates,
   changing system settings, accepting permission prompts, uploading files, or

@@ -29,7 +29,6 @@ REAL_DB="${QM_QA_REAL_DB_PATH:-$(qm_default_real_database_path "$HOME")}"
 PROTECTION_REPORT="${ARTIFACTS}/real-data-protection.txt"
 SOURCE_HOME="${QM_QA_SOURCE_HOME:-$HOME}"
 SOURCE_DEFAULTS_DOMAIN="${QM_QA_SOURCE_DEFAULTS_DOMAIN:-dev.tjzhou.QuotaMonitor}"
-COPY_USER_DEFAULTS="${QM_QA_COPY_USER_DEFAULTS:-1}"
 USER_DEFAULTS_REPORT="${ARTIFACTS}/user-defaults-shadow.txt"
 INSTALLED_APP_BUNDLE="$(qm_installed_app_bundle)"
 INSTALLED_APP_WAS_RUNNING="$(qm_installed_app_was_running "$INSTALLED_APP_BUNDLE")"
@@ -52,14 +51,13 @@ qm_write_real_data_defaults \
     "$DEFAULTS_SUITE" \
     "$SOURCE_HOME" \
     "$SOURCE_DEFAULTS_DOMAIN" \
-    "$USER_DEFAULTS_REPORT" \
-    "$COPY_USER_DEFAULTS"
+    "$USER_DEFAULTS_REPORT" || {
+    echo "error: failed to copy QuotaMonitor UserDefaults from ${SOURCE_HOME} (${SOURCE_DEFAULTS_DOMAIN})" >&2
+    exit 1
+}
 mkdir -p "$QA_HOME/.codex" "$QA_HOME/.claude" "$QA_HOME/.config/claude"
 
-USER_DEFAULTS_POLICY="deterministic-qa-defaults"
-if grep -q '^copied_user_defaults=true$' "$USER_DEFAULTS_REPORT"; then
-    USER_DEFAULTS_POLICY="copied-user-defaults"
-fi
+USER_DEFAULTS_POLICY="copied-user-defaults"
 
 export CODEX_HOME="$QA_HOME/.codex"
 qm_write_launch_config \
@@ -101,16 +99,6 @@ SELECT provider, COUNT(*) AS sessions FROM sessions GROUP BY provider ORDER BY p
 SELECT provider, COUNT(*) AS events, SUM(total_tokens) AS tokens FROM usage_events GROUP BY provider ORDER BY provider;
 SELECT source_kind, bucket, COUNT(*) AS samples FROM rate_limit_samples GROUP BY source_kind, bucket ORDER BY source_kind, bucket;
 SQL
-
-dev_log_has_qa_events() {
-    [[ -f "$DEV_LOG" ]] || return 1
-    grep -q '"event":"qa.snapshot.write"' "$DEV_LOG" || return 1
-}
-
-qm_retry_until 20 0.5 dev_log_has_qa_events || {
-    echo "error: real-data QA Developer Mode log did not record expected QA events: $DEV_LOG" >&2
-    exit 1
-}
 
 if [[ -f "$DEV_LOG" ]]; then
     cp "$DEV_LOG" "${ARTIFACTS}/quotamonitor-dev.log"

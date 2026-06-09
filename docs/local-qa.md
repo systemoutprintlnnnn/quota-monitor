@@ -142,7 +142,8 @@ Each Computer Use setup prints an artifact directory under
 - `db-counts.txt` — provider/session/event/rate-limit counts read from the
   isolated SQLite database.
 - `qa-config.json` — launch config passed to the app.
-- `quotamonitor-dev.log` — Developer Mode JSONL log for the QA run.
+- `quotamonitor-dev.log` — Developer Mode JSONL log for the QA run, present
+  only when Developer Mode is enabled in the copied or fixture settings.
 - `screen.png` — full-screen screenshot when macOS allows `screencapture`.
 - `ax-tree.txt` — Accessibility tree dump for open QuotaMonitor windows.
 
@@ -157,8 +158,9 @@ contract:
   settings snapshot.
 - `db-counts.txt` includes Codex, Claude, and both primary/secondary JSONL
   rate-limit samples.
-- `quotamonitor-dev.log` includes `qa.settings.exercise` and
-  `qa.snapshot.write`.
+- For fixture artifacts, `quotamonitor-dev.log` includes `qa.settings.exercise`
+  and `qa.snapshot.write`. Real-data artifacts keep the log optional so copied
+  installed settings are not changed just to produce diagnostics.
 - `screen.png` and `ax-tree.txt` are nonempty when available; if macOS denies
   Screen Recording or Accessibility, the harness writes a warning file instead.
 
@@ -214,12 +216,10 @@ The script:
 
 - computes a fingerprint for the source database,
 - copies the source database with SQLite backup into a temporary QA home,
-- copies the current QuotaMonitor UserDefaults into the isolated QA suite when
-  available,
+- copies the current QuotaMonitor UserDefaults into the isolated QA suite,
 - launches the app with that temporary HOME, an isolated UserDefaults suite,
   and `CODEX_HOME` inside the QA home,
 - does not copy real Codex or Claude credentials,
-- sets the QA defaults so Keychain policy is `never`,
 - disables live Codex app-server and Claude OAuth polling while QA mode is
   active,
 - verifies the app-reported database path points at the shadow copy,
@@ -238,16 +238,14 @@ To test a different source database:
 QM_QA_REAL_DB_PATH=/path/to/quotamonitor.sqlite ./qa/prepare-computer-use-real-data.sh
 ```
 
-By default, real-data shadow QA also copies the current
-`dev.tjzhou.QuotaMonitor` preferences into the QA defaults suite so visible
-state matches the installed app's language, provider, menu-bar, quota display,
-and window preferences. QA then applies safety overrides: Developer Mode is on,
-Keychain policy is `never`, credential mirroring is off, and live external
-sources stay disabled. To use deterministic QA defaults instead:
-
-```sh
-QM_QA_COPY_USER_DEFAULTS=0 ./qa/prepare-computer-use-real-data.sh
-```
+Real-data shadow QA copies the current `dev.tjzhou.QuotaMonitor` preferences
+into the QA defaults suite without applying product-setting overrides. Visible
+state therefore matches the installed app's language, provider, menu-bar, quota
+display, window preferences, Claude credential mode, Developer Mode, and
+credential-mirroring setting. If those preferences cannot be copied, the script
+fails instead of falling back to deterministic QA defaults. Use
+`./qa/prepare-computer-use-fixture.sh` when deterministic fixture settings are
+more useful than the installed app's visible configuration.
 
 The app is expected to mutate only the shadow database under the QA home. The
 original database is treated as read-only input; if its fingerprint changes
