@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import QuotaMonitor
 
@@ -42,14 +43,27 @@ struct ClaudeRolloutParserIncrementalTests {
     private func assistantLine(
         sid: String, msgId: String,
         ts: String = "2026-05-13T10:00:00.000Z",
+        model: String = "claude-opus-4-7",
         input: Int = 100, output: Int = 50
     ) -> String {
         """
         {"type":"assistant","sessionId":"\(sid)","timestamp":"\(ts)","message":\
-        {"id":"\(msgId)","model":"claude-opus-4-7","usage":\
+        {"id":"\(msgId)","model":"\(model)","usage":\
         {"input_tokens":\(input),"cache_creation_input_tokens":0,\
         "cache_read_input_tokens":0,"output_tokens":\(output)}}}
         """
+    }
+
+    private func makeDatabase() throws -> DatabaseManager {
+        let dir = URL(
+            fileURLWithPath: NSTemporaryDirectory(),
+            isDirectory: true
+        ).appendingPathComponent("qm-claude-import-\(UUID().uuidString)",
+                                 isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: dir, withIntermediateDirectories: true)
+        return try DatabaseManager(
+            url: dir.appendingPathComponent("quotamonitor.sqlite"))
     }
 
     // MARK: - 1. mid-write tail leaves endOffset behind the partial line
@@ -131,5 +145,61 @@ struct ClaudeRolloutParserIncrementalTests {
         let out = try ClaudeRolloutParser.parse(fileURL: url, fromOffset: size)
         #expect(out.session == nil)
         #expect(out.endOffset == size)
+    }
+
+    @Test("Claude import preserves existing events when a shared-session subagent file is added")
+    func sharedSessionSubagentFileDoesNotReplaceMainFileEvents() async throws {
+        let db = try makeDatabase()
+        let root = URL(
+            fileURLWithPath: NSTemporaryDirectory(),
+            isDirectory: true
+        ).appendingPathComponent("qm-claude-root-\(UUID().uuidString)",
+                                 isDirectory: true)
+        let project = root.appendingPathComponent("-repo", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: project, withIntermediateDirectories: true)
+
+        let sid = "shared-session"
+        let main = project.appendingPathComponent("\(sid).jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "main-1",
+            model: "claude-opus-4-8",
+            input: 10, output: 1
+        ) + "\n").write(to: main, atomically: true, encoding: .utf8)
+
+        let engine = ClaudeImportEngine(database: db, claudeRoots: [root])
+        _ = try await engine.performScan()
+
+        let subagentDir = project
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent("subagents/workflows/wf-1",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: subagentDir, withIntermediateDirectories: true)
+        let subagent = subagentDir.appendingPathComponent("agent-a.jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "agent-1",
+            model: "claude-haiku-4-5-20251001",
+            input: 20, output: 2
+        ) + "\n").write(to: subagent, atomically: true, encoding: .utf8)
+
+        _ = try await engine.performScan()
+
+        let rows = try await db.pool.read { conn in
+            try Row.fetchAll(conn, sql: """
+                SELECT model_id, COUNT(*) AS events
+                FROM usage_events
+                WHERE provider = 'claude'
+                GROUP BY model_id
+                ORDER BY model_id
+                """)
+        }
+        let counts = Dictionary(uniqueKeysWithValues: rows.map {
+            ($0["model_id"] as String, $0["events"] as Int)
+        })
+        #expect(counts == [
+            "claude-haiku-4-5-20251001": 1,
+            "claude-opus-4-8": 1,
+        ])
     }
 }

@@ -84,28 +84,49 @@ actor ClaudeImportEngine {
             let resetSession: Bool
         }
 
-        let planned: [PlannedScan] = files.compactMap { file in
+        var plannedByPath: [String: PlannedScan] = [:]
+        for file in files {
             guard let prior = priorState[file.path] else {
-                return PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                continue
             }
             if prior.fileSize == file.fileSize && prior.fileMtimeMs == file.fileMtimeMs {
-                return nil
+                continue
             }
             // Truncation or rotation: file is smaller than the offset we
             // last consumed, so the bytes at that offset can't possibly
             // be what they used to be. Safest is a full re-read.
             if file.fileSize < prior.byteOffset {
-                return PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                continue
             }
             // First time we see this file post-v5 (legacy import_state row
             // had no offset). One last full read regenerates
             // `provider_message_id` so the unique index can do its job
             // on subsequent scans.
             if prior.byteOffset == 0 {
-                return PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                continue
             }
-            return PlannedScan(file: file, fromOffset: prior.byteOffset, resetSession: false)
+            plannedByPath[file.path] = PlannedScan(file: file, fromOffset: prior.byteOffset, resetSession: false)
         }
+        // Claude Code dynamic-workflow/subagent files can share one raw
+        // sessionId with the main rollout file. A per-file full reset would
+        // delete rows imported from sibling files in that same session, so
+        // rebuild the whole session group whenever any sibling needs reset.
+        let resetSessionIds = Set(
+            plannedByPath.values
+                .filter(\.resetSession)
+                .map { $0.file.sessionId })
+        if !resetSessionIds.isEmpty {
+            for file in files where resetSessionIds.contains(file.sessionId) {
+                plannedByPath[file.path] = PlannedScan(
+                    file: file,
+                    fromOffset: 0,
+                    resetSession: true)
+            }
+        }
+        let planned = plannedByPath.values.sorted { $0.file.path < $1.file.path }
         await progress?(ScanProgressUpdate(
             provider: "claude",
             completedFiles: 0,
@@ -116,16 +137,22 @@ actor ClaudeImportEngine {
         var importedEvents = 0
         var errors: [String] = []
 
+        var resetSessionsCompleted: Set<String> = []
         for (index, plan) in planned.enumerated() {
             do {
                 let output = try ClaudeRolloutParser.parse(
                     fileURL: plan.file.url, fromOffset: plan.fromOffset)
                 if let parsed = output.session {
+                    let shouldReset = plan.resetSession
+                        && !resetSessionsCompleted.contains(plan.file.sessionId)
                     let count = try await persist(
                         parsed: parsed,
                         file: plan.file,
                         byteOffset: output.endOffset,
-                        resetSession: plan.resetSession)
+                        resetSession: shouldReset)
+                    if shouldReset {
+                        resetSessionsCompleted.insert(plan.file.sessionId)
+                    }
                     importedSessions += 1
                     importedEvents += count
                 } else {
@@ -164,7 +191,14 @@ actor ClaudeImportEngine {
         let path: String
         let fileSize: Int64
         let fileMtimeMs: Int64
-        var sessionId: String { url.deletingPathExtension().lastPathComponent }
+        var sessionId: String {
+            let components = url.pathComponents
+            if let subagents = components.lastIndex(of: "subagents"),
+               subagents > components.startIndex {
+                return components[components.index(before: subagents)]
+            }
+            return url.deletingPathExtension().lastPathComponent
+        }
     }
 
     private func scanFiles() -> [ClaudeFile] {

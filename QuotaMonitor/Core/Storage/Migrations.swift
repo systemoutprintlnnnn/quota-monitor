@@ -206,5 +206,21 @@ enum Migrations {
                    OR source_path LIKE '%/.config/claude/projects/%'
                 """)
         }
+
+        // v7: Claude Code dynamic-workflow/subagent files may share the same
+        // raw sessionId as the main rollout file. Importer versions before v7
+        // reset by session per file, so one sibling could delete rows imported
+        // from another sibling and leave per-model stats incomplete. Force one
+        // full Claude re-read under the fixed group-reset importer.
+        migrator.registerMigration("v7-claude-shared-session-reread") { db in
+            try db.execute(sql: """
+                UPDATE import_state
+                SET file_size = -1,
+                    file_mtime_ms = -1,
+                    byte_offset = 0
+                WHERE source_path LIKE '%/.claude/projects/%'
+                   OR source_path LIKE '%/.config/claude/projects/%'
+                """)
+        }
     }
 }
