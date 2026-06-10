@@ -32,9 +32,9 @@ window copy.
 
 #### Summary
 - Dashboard's tool selector now stays neatly in the title bar without crowding the window buttons
-- Claude settings now hide the credential-source picker and offer recovery only when automatic refresh is disabled
-- Claude 5-hour quota rows keep the last reset value visible instead of turning into an empty idle line
+- Claude settings simplify credential handling, and 5-hour quota rows keep the last reset value visible instead of going blank
 - The same app can now also be installed as CodexMonitor — identical features under a different name, with its own update channel
+- App windows and the menu-bar panel open through the system's standard window handling again, and the menu-bar readout only lists tools with live numbers
 
 ### Added
 - **Product manual.** A new Chinese guide explains onboarding, the menu-bar popover, Dashboard, History, Sessions, Settings, updates, and uninstall flows with screenshots.
@@ -42,6 +42,11 @@ window copy.
 
 ### Changed
 - **Claude credential settings.** Advanced settings now use automatic Claude credential refresh by default, hide the file-only/Keychain picker from normal use, and show a restore button only when a saved file-only mode can stop live quota refreshes.
+- **SwiftUI window scenes.** Dashboard, Settings, onboarding, and the menu-bar help window are SwiftUI `Window` scenes again, opened through a lightweight `WindowRouter` bridge; this replaces the AppKit window manager introduced in 0.2.31.
+- **System menu-bar popover.** The menu-bar popover is an `NSPopover` again, so positioning and full-screen behavior follow the system instead of a manually placed borderless window.
+- **Menu-bar readout hides empty providers.** The status-item text readout now omits a provider with no live quota numbers instead of rendering `-- · --` placeholders or falling back to the stored dashboard quota snapshot.
+- **Real-data QA defaults.** `qa/prepare-computer-use-real-data.sh` applies deterministic QA defaults again instead of copying the installed app's UserDefaults, and now waits for settings-exercise and snapshot events in the Developer Mode log before reporting success.
+- **Single-job CI.** The tests workflow runs the static QA gate plus a release-build smoke check on every push and pull request, removing the change-detection summary job that gated the macOS suite.
 
 ### Fixed
 - **Dashboard filter layout.** The title-bar tool selector now uses a stable labeled menu, preventing it from collapsing into a tiny control or overlapping the window title after opening or moving the window.

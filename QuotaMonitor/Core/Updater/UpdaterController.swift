@@ -104,12 +104,6 @@ final class UpdaterController {
         }
     }
 
-    /// Whether the custom update window is currently on screen. Lets
-    /// `WindowManager` count the Sparkle update window as an app-owned window
-    /// when deciding the activation policy, even though it isn't in the
-    /// `WindowManager` registry.
-    var isUpdateWindowVisible: Bool { userDriver.isUpdateWindowVisible }
-
     /// User-triggered check. Routes through the custom user driver,
     /// which surfaces the SwiftUI update window with animated release
     /// notes + download/install progress. Safe to call repeatedly —

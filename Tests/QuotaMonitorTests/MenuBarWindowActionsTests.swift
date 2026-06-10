@@ -10,37 +10,38 @@ struct MenuBarWindowActionsTests {
     func dashboardUsesExplicitRequestAndRefreshes() {
         var events: [String] = []
         let actions = MenuBarWindowActions(
+            activateForWindow: { events.append("activate") },
             requestWindow: { events.append("request:\($0)") },
             refreshDashboard: { events.append("refresh") })
 
         actions.openDashboard()
 
-        // Activation is owned by `WindowManager.show` (the live `requestWindow`),
-        // so these actions just request the window and refresh.
-        #expect(events == ["request:dashboard", "refresh"])
+        #expect(events == ["activate", "request:dashboard", "refresh"])
     }
 
     @Test
     func settingsUsesExplicitRequest() {
         var events: [String] = []
         let actions = MenuBarWindowActions(
+            activateForWindow: { events.append("activate") },
             requestWindow: { events.append("request:\($0)") },
             refreshDashboard: { events.append("refresh") })
 
         actions.openSettings()
 
-        #expect(events == ["request:settings"])
+        #expect(events == ["activate", "request:settings"])
     }
 
     @Test
     func onboardingUsesExplicitRequest() {
         var events: [String] = []
         let actions = MenuBarWindowActions(
+            activateForWindow: { events.append("activate") },
             requestWindow: { events.append("request:\($0)") },
             refreshDashboard: { events.append("refresh") })
 
         actions.openOnboarding()
 
-        #expect(events == ["request:onboarding"])
+        #expect(events == ["activate", "request:onboarding"])
     }
 }

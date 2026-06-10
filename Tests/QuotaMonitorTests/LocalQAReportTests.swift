@@ -23,7 +23,6 @@ struct LocalQAReportTests {
                 language: "en",
                 enabledProviders: ["claude"],
                 menuBarIconProviders: ["claude"],
-                menuBarLabelStyle: "native",
                 quotaDisplayMode: "remaining",
                 showDockIconForWindows: false,
                 developerModeEnabled: true,

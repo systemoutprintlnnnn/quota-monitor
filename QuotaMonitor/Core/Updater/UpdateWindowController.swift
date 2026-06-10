@@ -10,6 +10,8 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private let state: UpdateWindowState
+    /// Fired from `windowWillClose` so the app can drop the Dock icon when
+    /// the update window was the last visible app window.
     private let onWindowClosed: @MainActor () -> Void
 
     init(state: UpdateWindowState,
@@ -20,14 +22,6 @@ final class UpdateWindowController: NSObject, NSWindowDelegate {
     }
 
     // MARK: - Public
-
-    /// Whether the update window is currently on screen. Consulted by the
-    /// app-window visibility check (via `CustomUserDriver` / `UpdaterController`
-    /// / `WindowManager`) so closing the last `WindowManager` window while an
-    /// update is showing doesn't demote the app to `.accessory` out from under
-    /// this window. The window is non-miniaturizable, so `isVisible` cleanly
-    /// reflects "on screen".
-    var isWindowVisible: Bool { window?.isVisible ?? false }
 
     /// Creates (if needed) and shows the update window, bringing it to
     /// front.

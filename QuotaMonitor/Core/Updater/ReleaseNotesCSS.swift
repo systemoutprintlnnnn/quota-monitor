@@ -16,8 +16,6 @@ import Foundation
 /// scroll into view.  `prefers-reduced-motion` disables all motion.
 enum ReleaseNotesCSS {
 
-    // MARK: - Content detection
-
     /// Whether `rawHTML` (an appcast `<description>` body, before wrapping)
     /// carries any renderable content. The update window uses this to choose
     /// between the WebView and a graceful "no notes" fallback: `wrapHTML`

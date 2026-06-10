@@ -39,8 +39,7 @@ final class UpdateWindowState {
     var isCritical: Bool = false
 
     /// Raw HTML from `SUAppcastItem.itemDescription`, already wrapped
-    /// in a full document by `ReleaseNotesCSS.wrapHTML(…)`. Empty when the
-    /// appcast item carried no description.
+    /// in a full document by `ReleaseNotesCSS.wrapHTML(…)`.
     var releaseNotesHTML: String = ""
 
     /// Whether this update actually shipped release notes. Tracked

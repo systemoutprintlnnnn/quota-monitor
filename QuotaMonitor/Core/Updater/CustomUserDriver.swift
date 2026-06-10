@@ -27,13 +27,6 @@ final class CustomUserDriver: NSObject, SPUUserDriver {
         super.init()
     }
 
-    /// Whether the update window is currently on screen. Forwarded up to
-    /// `UpdaterController` so `WindowManager` can count it as an app window.
-    /// Touching `windowController` forces its lazy init, but the controller
-    /// builds no `NSWindow` until `show()`, so this stays false (and cheap)
-    /// until an update is actually presented.
-    var isUpdateWindowVisible: Bool { windowController.isWindowVisible }
-
     private static let log = Logger(
         subsystem: Log.subsystem, category: "updater")
 

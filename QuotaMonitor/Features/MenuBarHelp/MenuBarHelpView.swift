@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 extension Notification.Name {
     /// Posted by the recovery guide's "Re-check" button. `AppDelegate`
@@ -15,6 +16,13 @@ extension Notification.Name {
 /// is making room, after which macOS shows the item automatically.
 struct MenuBarHelpView: View {
     @Environment(AppEnvironment.self) private var env
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
+    private let lifecycleActions: @MainActor (AppEnvironment) -> MenuBarHelpLifecycleActions
+
+    init(lifecycleActions: @escaping @MainActor (AppEnvironment) -> MenuBarHelpLifecycleActions = MenuBarHelpLifecycleActions.live) {
+        self.lifecycleActions = lifecycleActions
+    }
 
     /// Becomes true after the first "Re-check" so the status line only
     /// appears once the user has actually tried.
@@ -64,11 +72,12 @@ struct MenuBarHelpView: View {
                 }
                 Spacer()
                 Button(L10n.openDashboard) {
-                    WindowManager.shared.show("dashboard")
+                    env.activateForWindow()
+                    openWindow(id: "dashboard")
                     env.refreshDashboard()
                 }
                 Button(L10n.menuBarHiddenHintDismiss) {
-                    WindowManager.shared.close("menubar-help")
+                    dismissWindow(id: "menubar-help")
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -76,8 +85,20 @@ struct MenuBarHelpView: View {
         .padding(20)
         .frame(width: 440)
         .fixedSize(horizontal: false, vertical: true)
-        // Focus-on-open and demote-on-close are owned by `WindowManager` /
-        // `AppWindowController` now that this is an AppKit-hosted window.
+        // Bring to front: like onboarding, this window is opened without a
+        // user gesture from an `.accessory` app, so macOS doesn't grant it
+        // frontmost focus on its own.
+        .onAppear {
+            env.activateForWindow()
+            if let win = NSApp.windows.first(where: {
+                $0.identifier?.rawValue == "menubar-help"
+            }) {
+                win.makeKeyAndOrderFront(nil)
+            }
+        }
+        .onDisappear {
+            lifecycleActions(env).windowDidDisappear()
+        }
     }
 
     private func step(_ symbol: String, _ text: String) -> some View {

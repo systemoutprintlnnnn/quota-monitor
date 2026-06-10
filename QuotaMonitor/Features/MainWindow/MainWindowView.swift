@@ -1,8 +1,10 @@
 import SwiftUI
+import AppKit
 
 struct MainWindowView: View {
     @Environment(AppEnvironment.self) private var env
     @Environment(SettingsStore.self) private var settings
+    @Environment(\.openWindow) private var openWindow
     @State private var tab: Tab = .dashboard
     /// Bumped by the toolbar Reload button. Folded into the inner view's
     /// `.id(...)` so any tab the user is looking at gets re-mounted, which
@@ -65,7 +67,7 @@ struct MainWindowView: View {
                 Button {
                     WindowCrossLinkActions.scene(
                         env: env,
-                        openWindow: { WindowManager.shared.show($0) }
+                        openWindow: { openWindow(id: $0) }
                     ).openSettingsFromDashboard()
                 } label: {
                     Label(L10n.openSettings, systemImage: "gearshape")
@@ -73,8 +75,11 @@ struct MainWindowView: View {
                 .quickHoverHelp(L10n.openSettingsTooltip)
             }
         }
-        // Demote-on-close is owned by `AppWindowController.windowWillClose`
-        // now that this is an AppKit-hosted window.
+        .onDisappear {
+            // When user closes the window, drop back to menu-bar-only mode so
+            // the Dock icon doesn't linger.
+            env.demoteToAccessory(excludingWindowIDs: ["dashboard"])
+        }
     }
 
     @ViewBuilder

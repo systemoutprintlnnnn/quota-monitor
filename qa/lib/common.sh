@@ -36,56 +36,6 @@ qm_write_defaults() {
     HOME="$home" defaults write "$domain" settings.menuBarIconProviders -array codex claude
 }
 
-qm_copy_user_defaults_to_qa_suite() {
-    local source_home="$1"
-    local target_home="$2"
-    local source_domain="$3"
-    local target_domain="$4"
-    local tmp_plist
-
-    mkdir -p "$target_home/Library/Preferences"
-    HOME="$source_home" defaults read "$source_domain" >/dev/null 2>&1 || return 1
-    tmp_plist="$(mktemp "${TMPDIR:-/tmp}/qm-user-defaults.XXXXXX.plist")"
-    if ! HOME="$source_home" defaults export "$source_domain" "$tmp_plist" >/dev/null 2>&1; then
-        rm -f "$tmp_plist"
-        return 1
-    fi
-    if ! HOME="$target_home" defaults import "$target_domain" "$tmp_plist" >/dev/null 2>&1; then
-        rm -f "$tmp_plist"
-        return 1
-    fi
-    rm -f "$tmp_plist"
-}
-
-qm_write_real_data_defaults() {
-    local home="$1"
-    local domain="$2"
-    local source_home="$3"
-    local source_domain="$4"
-    local report_path="$5"
-    local copied="false"
-
-    if qm_copy_user_defaults_to_qa_suite \
-        "$source_home" \
-        "$home" \
-        "$source_domain" \
-        "$domain"; then
-        copied="true"
-    fi
-
-    {
-        printf 'source_home=%s\n' "$source_home"
-        printf 'source_domain=%s\n' "$source_domain"
-        printf 'target_home=%s\n' "$home"
-        printf 'target_domain=%s\n' "$domain"
-        printf 'copy_requested=1\n'
-        printf 'copied_user_defaults=%s\n' "$copied"
-        printf 'safety_overrides=none\n'
-    } >"$report_path"
-
-    [[ "$copied" == "true" ]]
-}
-
 qm_seed_fixtures() {
     local home="$1"
     local root
@@ -112,11 +62,6 @@ qm_default_steps() {
 
 qm_computer_use_steps() {
     qm_default_steps
-}
-
-qm_real_data_computer_use_steps() {
-    printf '%s\n' \
-        "open-dashboard,open-settings,open-menubar-help,show-popover,refresh-all,wait,snapshot"
 }
 
 qm_steps_include_quit() {
@@ -353,7 +298,6 @@ qm_write_real_data_computer_qa_brief() {
     local repo_root="$5"
     local source_db="$6"
     local shadow_db="$7"
-    local user_defaults_report="${8:-}"
     local app_target
     app_target="$(qm_computer_use_app_target "$repo_root")"
 
@@ -368,15 +312,11 @@ qm_write_real_data_computer_qa_brief() {
         printf '%s\n' "- Defaults suite: \`$defaults_suite\`"
         printf '%s\n' "- Source DB: \`$source_db\`"
         printf '%s\n' "- Shadow DB: \`$shadow_db\`"
-        if [[ -n "$user_defaults_report" ]]; then
-            printf '%s\n' "- User defaults shadow: \`$user_defaults_report\`"
-        fi
         printf '%s\n' "- Boundary manifest: \`$artifacts/qa-boundary.json\`"
         printf '%s\n\n' "- Cleanup: \`$artifacts/cleanup-computer-use.sh\`"
         printf 'The app is running against the shadow DB under the isolated QA home. The original DB path is never passed to the app.\n\n'
         printf '## Data Boundary\n\n'
         printf '%s\n' '- The source database was copied with a SQLite backup into the QA home before launch.'
-        printf '%s\n' '- QuotaMonitor UserDefaults are copied into the isolated QA suite without changing product-visible preferences.'
         printf '%s\n' '- Do not copy real Codex or Claude credentials into this profile.'
         printf '%s\n' '- CODEX_HOME points at the QA home, not the real ~/.codex directory.'
         printf '%s\n' '- Live external sources are disabled in Local QA, so the app should not request real Claude credentials.'
@@ -458,8 +398,6 @@ qm_write_boundary_manifest() {
     local app_artifacts="$6"
     local source_db="${7:-}"
     local shadow_db="${8:-}"
-    local user_defaults_policy="${9:-deterministic-qa-defaults}"
-    local source_defaults_domain="${10:-}"
     local db_policy="fixture-db"
     if [[ "$mode" == "real-data-shadow" ]]; then
         db_policy="shadow-copy"
@@ -490,17 +428,9 @@ qm_write_boundary_manifest() {
         printf '    "quotaMonitorDatabase": '
         qm_json_string "$db_policy"
         printf ',\n'
-        printf '    "userDefaults": '
-        qm_json_string "$user_defaults_policy"
-        printf ',\n'
         printf '    "codexSource": "qa-codex-home",\n'
         printf '    "claudeSource": "qa-home",\n'
         printf '    "credentials": "not-copied"'
-        if [[ -n "$source_defaults_domain" ]]; then
-            printf ',\n'
-            printf '    "sourceDefaultsDomain": '
-            qm_json_string "$source_defaults_domain"
-        fi
         if [[ -n "$source_db" || -n "$shadow_db" ]]; then
             printf ',\n'
             printf '    "sourceDatabase": '
@@ -652,7 +582,7 @@ qm_ax_snapshot_has_expected_windows() {
     local ax_tree="$1"
     [[ -f "$ax_tree" ]] || return 1
     grep -q 'Quota Monitor' "$ax_tree" || return 1
-    grep -Eq 'Settings|设置' "$ax_tree" || return 1
+    grep -q 'Settings' "$ax_tree" || return 1
 }
 
 qm_warn_incomplete_ax_snapshot() {
@@ -703,7 +633,6 @@ qm_assert_artifact_contract() {
 
     qm_assert_plutil_equals "$state" "settings.language" "en"
     qm_assert_plutil_equals "$state" "settings.quotaDisplayMode" "remaining"
-    qm_assert_plutil_equals "$state" "settings.menuBarLabelStyle" "emphasis"
     qm_assert_plutil_equals "$state" "settings.showDockIconForWindows" "false"
     qm_assert_plutil_equals "$state" "settings.developerModeEnabled" "true"
     qm_assert_plutil_equals "$state" "settings.pollIntervalSeconds" "900"
@@ -780,18 +709,24 @@ qm_assert_real_data_artifact_contract() {
     }
     plutil -convert json -o /dev/null "$state" >/dev/null
 
-    grep -Eq '"identifier"[[:space:]]*:[[:space:]]*"dashboard"' "$state" || {
+    grep -Eq '"title"[[:space:]]*:[[:space:]]*"Quota Monitor"' "$state" || {
         echo "error: dashboard window was not captured in real-data QA state" >&2
         return 1
     }
-    grep -Eq '"identifier"[[:space:]]*:[[:space:]]*"settings"' "$state" || {
+    grep -Eq '"title"[[:space:]]*:[[:space:]]*"Settings"' "$state" || {
         echo "error: settings window was not captured in real-data QA state" >&2
         return 1
     }
-    qm_plutil_raw "settings.menuBarLabelStyle" "$state" >/dev/null || {
-        echo "error: menu-bar label style missing from real-data QA state" >&2
+    grep -q '"exercise-settings"' "$state" || {
+        echo "error: settings exercise step was not captured in real-data QA state" >&2
         return 1
     }
+
+    qm_assert_plutil_equals "$state" "settings.language" "en"
+    qm_assert_plutil_equals "$state" "settings.quotaDisplayMode" "remaining"
+    qm_assert_plutil_equals "$state" "settings.showDockIconForWindows" "false"
+    qm_assert_plutil_equals "$state" "settings.developerModeEnabled" "true"
+    qm_assert_plutil_equals "$state" "settings.pollIntervalSeconds" "900"
 
     [[ -f "$db_counts" ]] || {
         echo "error: missing real-data db-counts artifact: $db_counts" >&2
@@ -802,6 +737,18 @@ qm_assert_real_data_artifact_contract() {
         return 1
     }
 
+    [[ -f "$dev_log" ]] || {
+        echo "error: missing Developer Mode log artifact: $dev_log" >&2
+        return 1
+    }
+    grep -q '"event":"qa.settings.exercise"' "$dev_log" || {
+        echo "error: settings exercise event missing from real-data Developer Mode log" >&2
+        return 1
+    }
+    grep -q '"event":"qa.snapshot.write"' "$dev_log" || {
+        echo "error: snapshot write event missing from real-data Developer Mode log" >&2
+        return 1
+    }
     qm_assert_no_external_data_source_events "$artifacts"
     qm_assert_no_real_provider_paths_leaked "$artifacts"
 
@@ -843,7 +790,7 @@ qm_assert_no_external_data_source_events() {
 
 qm_assert_no_real_provider_paths_leaked() {
     local artifacts="$1"
-    local source_home="${QM_QA_SOURCE_HOME:-${QM_QA_REAL_SOURCE_HOME:-$HOME}}"
+    local source_home="${QM_QA_REAL_SOURCE_HOME:-$HOME}"
     local real_codex="${source_home}/.codex"
     local real_claude="${source_home}/.claude"
     local real_claude_config="${source_home}/.config/claude"

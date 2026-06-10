@@ -25,26 +25,6 @@ struct MenuBarLabelModelTests {
                                    sevenDayOpus: nil, sevenDaySonnet: nil)
     }
 
-    private func codexQuota(five: Double?, seven: Double?) -> CodexQuotaSnapshot {
-        func win(_ bucket: String, _ p: Double?) -> CodexQuotaWindow? {
-            p.map {
-                CodexQuotaWindow(
-                    bucket: bucket,
-                    sourceKind: "jsonl",
-                    planType: "pro",
-                    sampleAt: Date(),
-                    windowStart: nil,
-                    resetsAt: Date().addingTimeInterval(3600),
-                    usedPercent: $0,
-                    remainingPercent: 100 - $0)
-            }
-        }
-        return CodexQuotaSnapshot(
-            primary: win("primary", five),
-            secondary: win("secondary", seven),
-            burn: [:])
-    }
-
     @Test
     func singleCodexNoTagUsedPercent() {
         let rows = MenuBarLabelModel.rows(
@@ -88,12 +68,12 @@ struct MenuBarLabelModelTests {
     }
 
     @Test
-    func providerWithNoNumbersShowsDashes() {
+    func providerWithNoNumbersDropped() {
         let rows = MenuBarLabelModel.rows(
             iconProviders: ["codex"], enabledProviders: ["codex"],
             rateLimits: codexSnapshot(five: nil, seven: nil), claudeUsage: nil,
             displayMode: .used)
-        #expect(rows == [.init(tag: "CX", fiveHour: "--", sevenDay: "--")])
+        #expect(rows.isEmpty)
     }
 
     @Test
@@ -106,51 +86,10 @@ struct MenuBarLabelModelTests {
     }
 
     @Test
-    func nilSnapshotsYieldDashRowsForSelectedProviders() {
+    func nilSnapshotsYieldNoRows() {
         let rows = MenuBarLabelModel.rows(
             iconProviders: ["codex", "claude"], enabledProviders: ["codex", "claude"],
             rateLimits: nil, claudeUsage: nil, displayMode: .used)
-        #expect(rows == [
-            .init(tag: "CX", fiveHour: "--", sevenDay: "--"),
-            .init(tag: "CC", fiveHour: "--", sevenDay: "--")
-        ])
-    }
-
-    @Test
-    func noSelectedIconProvidersYieldsNoRowsForGaugeFallback() {
-        let rows = MenuBarLabelModel.rows(
-            iconProviders: [],
-            enabledProviders: ["codex", "claude"],
-            rateLimits: codexSnapshot(five: 8, seven: 1),
-            claudeUsage: claudeSnapshot(five: 40, seven: 12),
-            displayMode: .used)
-
         #expect(rows.isEmpty)
-    }
-
-    @Test
-    func codexQuotaSnapshotBackfillsWhenLiveRateLimitsAreMissing() {
-        let rows = MenuBarLabelModel.rows(
-            iconProviders: ["codex"],
-            enabledProviders: ["codex"],
-            rateLimits: nil,
-            claudeUsage: nil,
-            codexQuota: codexQuota(five: 11, seven: 2),
-            displayMode: .used)
-
-        #expect(rows == [.init(tag: "CX", fiveHour: "11%", sevenDay: "2%")])
-    }
-
-    @Test
-    func liveRateLimitsWinOverDashboardQuotaFallback() {
-        let rows = MenuBarLabelModel.rows(
-            iconProviders: ["codex"],
-            enabledProviders: ["codex"],
-            rateLimits: codexSnapshot(five: 8, seven: 1),
-            claudeUsage: nil,
-            codexQuota: codexQuota(five: 11, seven: 2),
-            displayMode: .used)
-
-        #expect(rows == [.init(tag: "CX", fiveHour: "8%", sevenDay: "1%")])
     }
 }

@@ -120,6 +120,8 @@ struct UpdateWindowView: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
     }
 
     private var downloadingView: some View {
@@ -242,6 +244,8 @@ struct UpdateWindowView: View {
                 state.onInstall?()
             }
             .buttonStyle(.borderedProminent)
+            .disabled(state.phase == .updateAvailable
+                      && state.releaseNotesHTML.isEmpty)
         }
     }
 }
