@@ -34,6 +34,7 @@ window copy.
 - Dashboard's tool selector now stays neatly in the title bar without crowding the window buttons
 - Claude settings now hide the credential-source picker and offer recovery only when automatic refresh is disabled
 - A new product manual makes setup, dashboard, history, sessions, and settings easier to learn
+- Claude 5-hour quota rows keep the last reset value visible instead of turning into an empty idle line
 
 ### Added
 - **Product manual.** A new Chinese guide explains onboarding, the menu-bar popover, Dashboard, History, Sessions, Settings, updates, and uninstall flows with screenshots.
@@ -43,6 +44,7 @@ window copy.
 
 ### Fixed
 - **Dashboard filter layout.** The title-bar tool selector now uses a stable labeled menu, preventing it from collapsing into a tiny control or overlapping the window title after opening or moving the window.
+- **Claude reset quota row.** When Claude's current 5-hour window has reset and the next `/usage` response only reports 7-day quota, the popover keeps the last 5-hour percentage greyed out with a reset hint.
 
 ## [0.2.31] — 2026-06-08
 

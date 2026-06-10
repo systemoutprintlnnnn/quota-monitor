@@ -92,7 +92,7 @@ extension MenuBarContentView {
         VStack(alignment: .leading, spacing: 6) {
             claudeRateLimitNotice()
             if let usage = env.latestClaudeUsage,
-               usage.fiveHour != nil || usage.sevenDay != nil {
+               usage.fiveHour != nil || usage.staleFiveHour != nil || usage.sevenDay != nil {
                 claudeOAuthInner(usage: usage)
             } else {
                 claudeFallbackInner(stats: stats, blocks: blocks)
@@ -154,12 +154,15 @@ extension MenuBarContentView {
         VStack(alignment: .leading, spacing: 6) {
             if let w = usage.fiveHour {
                 QuotaRow(title: L10n.quotaCardTitle5h, window: w, accent: .orange)
+            } else if let w = usage.staleFiveHour {
+                QuotaRow(title: L10n.quotaCardTitle5h, window: w, accent: .orange)
             } else if usage.sevenDay != nil {
                 // Anthropic's /api/oauth/usage drops `five_hour` entirely
                 // after the window resets if the user hasn't prompted
-                // Claude yet — not a zero value, the key is absent. Show
-                // a greyed placeholder so the missing row doesn't read as
-                // a bug next to a healthy 7d row.
+                // Claude yet — not a zero value, the key is absent. If we
+                // also lack a previous 5h sample, show a quiet placeholder
+                // so the missing row doesn't read as a bug next to a healthy
+                // 7d row.
                 claude5hIdleRow()
             }
             if let w = usage.sevenDay {

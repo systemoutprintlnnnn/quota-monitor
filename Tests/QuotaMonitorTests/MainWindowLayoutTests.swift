@@ -15,11 +15,14 @@ struct MainWindowLayoutTests {
     }
 
     private static func source(named relativePath: String) throws -> String {
-        var url = URL(fileURLWithPath: #filePath)
-        while url.lastPathComponent != "quota-monitor" && url.path != "/" {
+        var url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while url.path != "/" {
+            let candidate = url.appendingPathComponent(relativePath)
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return try String(contentsOf: candidate, encoding: .utf8)
+            }
             url.deleteLastPathComponent()
         }
-        return try String(contentsOf: url.appendingPathComponent(relativePath),
-                          encoding: .utf8)
+        throw CocoaError(.fileNoSuchFile)
     }
 }

@@ -37,6 +37,7 @@ enum ClaudeUsageHydrator {
             let capturedAt = parseDate(captured) ?? Date()
 
             var fiveHour: ClaudeUsageSnapshot.Window?
+            var staleFiveHour: ClaudeUsageSnapshot.Window?
             var sevenDay: ClaudeUsageSnapshot.Window?
             var sevenDayOpus: ClaudeUsageSnapshot.Window?
             var sevenDaySonnet: ClaudeUsageSnapshot.Window?
@@ -64,8 +65,17 @@ enum ClaudeUsageHydrator {
                 }
             }
 
+            if fiveHour == nil {
+                staleFiveHour = try latestExpiredFiveHour(
+                    db: db,
+                    beforeSampleTimestamp: captured,
+                    capturedAt: capturedAt,
+                    parseDate: parseDate)
+            }
+
             // Avoid "useless" rehydration if every window is empty.
-            if fiveHour == nil && sevenDay == nil && sevenDayOpus == nil && sevenDaySonnet == nil {
+            if fiveHour == nil && staleFiveHour == nil
+                && sevenDay == nil && sevenDayOpus == nil && sevenDaySonnet == nil {
                 return nil
             }
 
@@ -73,9 +83,39 @@ enum ClaudeUsageHydrator {
                 capturedAt: capturedAt,
                 tier: tier,
                 fiveHour: fiveHour,
+                staleFiveHour: staleFiveHour,
                 sevenDay: sevenDay,
                 sevenDayOpus: sevenDayOpus,
                 sevenDaySonnet: sevenDaySonnet)
         }
+    }
+
+    private static func latestExpiredFiveHour(
+        db: Database,
+        beforeSampleTimestamp captured: String,
+        capturedAt: Date,
+        parseDate: (String?) -> Date?
+    ) throws -> ClaudeUsageSnapshot.Window? {
+        guard let row = try Row.fetchOne(db, sql: """
+            SELECT used_percent, resets_at
+            FROM rate_limit_samples
+            WHERE source_kind = 'claude_oauth'
+              AND bucket = 'primary'
+              AND limit_name IS NULL
+              AND sample_timestamp < ?
+            ORDER BY sample_timestamp DESC
+            LIMIT 1
+            """, arguments: [captured]) else {
+            return nil
+        }
+        guard let resetAt = parseDate(row["resets_at"] as String?),
+              resetAt <= capturedAt else {
+            return nil
+        }
+        let usedPercent: Double = row["used_percent"] ?? 0
+        return ClaudeUsageSnapshot.Window(
+            usedPercent: usedPercent,
+            resetAt: resetAt,
+            windowDuration: 18_000)
     }
 }

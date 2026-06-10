@@ -312,7 +312,8 @@ final class AppEnvironment {
                     guard let self else { return }
                     switch result {
                     case .success(let snap):
-                        self.latestClaudeUsage = snap
+                        self.latestClaudeUsage = snap.preservingStaleFiveHour(
+                            from: self.latestClaudeUsage)
                         self.lastClaudeUsageError = nil
                     case .failure(let err):
                         self.lastClaudeUsageError = String(describing: err)
