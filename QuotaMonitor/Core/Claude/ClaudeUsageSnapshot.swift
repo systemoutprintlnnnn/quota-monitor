@@ -13,12 +13,57 @@ struct ClaudeUsageSnapshot: Equatable, Sendable {
     /// for the badge next to the Claude block. Nil = the API didn't say.
     let tier: String?
     let fiveHour: Window?
+    /// Last known 5-hour window after Anthropic has stopped returning
+    /// `five_hour` because that window reset and no new current window has
+    /// started. UI can render this through the stale-row treatment without
+    /// confusing it with the active `fiveHour` slot.
+    let staleFiveHour: Window?
     let sevenDay: Window?
     /// Per-model 7-day windows. Pro / Max users see Opus + Sonnet
     /// separately because Opus has a tighter sub-limit; Free / lower tiers
     /// may omit one or both.
     let sevenDayOpus: Window?
     let sevenDaySonnet: Window?
+
+    init(
+        capturedAt: Date,
+        tier: String?,
+        fiveHour: Window?,
+        staleFiveHour: Window? = nil,
+        sevenDay: Window?,
+        sevenDayOpus: Window?,
+        sevenDaySonnet: Window?
+    ) {
+        self.capturedAt = capturedAt
+        self.tier = tier
+        self.fiveHour = fiveHour
+        self.staleFiveHour = staleFiveHour
+        self.sevenDay = sevenDay
+        self.sevenDayOpus = sevenDayOpus
+        self.sevenDaySonnet = sevenDaySonnet
+    }
+
+    func preservingStaleFiveHour(from previous: ClaudeUsageSnapshot?) -> ClaudeUsageSnapshot {
+        guard fiveHour == nil,
+              staleFiveHour == nil,
+              hasCurrentQuotaWindow,
+              let previousWindow = previous?.fiveHour ?? previous?.staleFiveHour,
+              previousWindow.resetAt <= capturedAt else {
+            return self
+        }
+        return ClaudeUsageSnapshot(
+            capturedAt: capturedAt,
+            tier: tier,
+            fiveHour: fiveHour,
+            staleFiveHour: previousWindow,
+            sevenDay: sevenDay,
+            sevenDayOpus: sevenDayOpus,
+            sevenDaySonnet: sevenDaySonnet)
+    }
+
+    private var hasCurrentQuotaWindow: Bool {
+        sevenDay != nil || sevenDayOpus != nil || sevenDaySonnet != nil
+    }
 
     struct Window: Equatable, Sendable {
         let usedPercent: Double

@@ -102,6 +102,23 @@ struct ClaudeUsageHydratorTests {
         #expect(snap.tier == "max5x")
     }
 
+    @Test("newest 7d-only sample keeps the expired 5h sample as stale")
+    func newestSevenDayOnlySampleKeepsExpiredFiveHourAsStale() async throws {
+        let db = try makeDatabase()
+        try await insert(db, sampleAt: "2026-04-29T10:00:00Z",
+                         bucket: "primary", limitName: nil, plan: "pro",
+                         usedPercent: 3.0, resetAt: "2026-04-29T11:00:00Z")
+        try await insert(db, sampleAt: "2026-04-29T12:00:00Z",
+                         bucket: "secondary", limitName: nil, plan: "pro",
+                         usedPercent: 27.0, resetAt: "2026-05-06T12:00:00Z")
+
+        let snap = try #require(try await ClaudeUsageHydrator.loadLatest(database: db))
+        #expect(snap.fiveHour == nil,
+                "expired fallback must not masquerade as the active 5h window")
+        #expect(abs((snap.staleFiveHour?.usedPercent ?? -1) - 3.0) < 0.0001)
+        #expect(abs((snap.sevenDay?.usedPercent ?? -1) - 27.0) < 0.0001)
+    }
+
     // MARK: - partial windows (model-only quotas, no plain secondary)
 
     @Test("opus/sonnet without a plain secondary row still hydrate")
