@@ -46,6 +46,7 @@ struct ClaudeUsageSnapshot: Equatable, Sendable {
     func preservingStaleFiveHour(from previous: ClaudeUsageSnapshot?) -> ClaudeUsageSnapshot {
         guard fiveHour == nil,
               staleFiveHour == nil,
+              hasCurrentQuotaWindow,
               let previousWindow = previous?.fiveHour ?? previous?.staleFiveHour,
               previousWindow.resetAt <= capturedAt else {
             return self
@@ -58,6 +59,10 @@ struct ClaudeUsageSnapshot: Equatable, Sendable {
             sevenDay: sevenDay,
             sevenDayOpus: sevenDayOpus,
             sevenDaySonnet: sevenDaySonnet)
+    }
+
+    private var hasCurrentQuotaWindow: Bool {
+        sevenDay != nil || sevenDayOpus != nil || sevenDaySonnet != nil
     }
 
     struct Window: Equatable, Sendable {

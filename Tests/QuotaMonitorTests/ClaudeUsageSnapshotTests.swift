@@ -60,4 +60,30 @@ struct ClaudeUsageSnapshotTests {
 
         #expect(merged.staleFiveHour == nil)
     }
+
+    @Test("empty refresh does not preserve stale 5h by itself")
+    func emptyRefreshDoesNotPreserveStaleFiveHour() {
+        let oldFiveHour = ClaudeUsageSnapshot.Window(
+            usedPercent: 3,
+            resetAt: Date(timeIntervalSince1970: 3_600),
+            windowDuration: 18_000)
+        let previous = ClaudeUsageSnapshot(
+            capturedAt: Date(timeIntervalSince1970: 3_500),
+            tier: "pro",
+            fiveHour: oldFiveHour,
+            sevenDay: nil,
+            sevenDayOpus: nil,
+            sevenDaySonnet: nil)
+        let refreshed = ClaudeUsageSnapshot(
+            capturedAt: Date(timeIntervalSince1970: 7_200),
+            tier: "pro",
+            fiveHour: nil,
+            sevenDay: nil,
+            sevenDayOpus: nil,
+            sevenDaySonnet: nil)
+
+        let merged = refreshed.preservingStaleFiveHour(from: previous)
+
+        #expect(merged.staleFiveHour == nil)
+    }
 }
