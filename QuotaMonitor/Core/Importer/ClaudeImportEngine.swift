@@ -76,6 +76,12 @@ actor ClaudeImportEngine {
         // - Otherwise grew or mtime moved → incremental from the recorded offset.
         struct PlannedScan {
             let file: ClaudeFile
+            /// Key used to gather sibling files sharing one raw session.
+            /// Prefers the content-derived session id recorded in
+            /// import_state (covers any layout that shares a session id,
+            /// not just `subagents/` directories); falls back to the
+            /// path-derived id for files we've never seen before.
+            let groupId: String
             let fromOffset: Int64
             /// True when we're starting a fresh read; persist clears the
             /// session's existing usage_events. False for tail reads;
@@ -84,10 +90,23 @@ actor ClaudeImportEngine {
             let resetSession: Bool
         }
 
+        let groupId: (ClaudeFile) -> String = { file in
+            priorState[file.path]?.sessionId ?? file.sessionId
+        }
+        // Session groups that already have imported state under any file.
+        // A brand-new file joining a known group must NOT trigger a session
+        // reset: its rows were never imported (nothing to clear), the unique
+        // index dedups any overlap, and a reset would force every sibling
+        // through a full re-read each time a subagent file appears.
+        let knownGroupIds = Set(priorState.values.compactMap(\.sessionId))
+
         var plannedByPath: [String: PlannedScan] = [:]
         for file in files {
+            let group = groupId(file)
             guard let prior = priorState[file.path] else {
-                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(
+                    file: file, groupId: group, fromOffset: 0,
+                    resetSession: !knownGroupIds.contains(group))
                 continue
             }
             if prior.fileSize == file.fileSize && prior.fileMtimeMs == file.fileMtimeMs {
@@ -97,7 +116,8 @@ actor ClaudeImportEngine {
             // last consumed, so the bytes at that offset can't possibly
             // be what they used to be. Safest is a full re-read.
             if file.fileSize < prior.byteOffset {
-                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(
+                    file: file, groupId: group, fromOffset: 0, resetSession: true)
                 continue
             }
             // First time we see this file post-v5 (legacy import_state row
@@ -105,23 +125,28 @@ actor ClaudeImportEngine {
             // `provider_message_id` so the unique index can do its job
             // on subsequent scans.
             if prior.byteOffset == 0 {
-                plannedByPath[file.path] = PlannedScan(file: file, fromOffset: 0, resetSession: true)
+                plannedByPath[file.path] = PlannedScan(
+                    file: file, groupId: group, fromOffset: 0, resetSession: true)
                 continue
             }
-            plannedByPath[file.path] = PlannedScan(file: file, fromOffset: prior.byteOffset, resetSession: false)
+            plannedByPath[file.path] = PlannedScan(
+                file: file, groupId: group, fromOffset: prior.byteOffset, resetSession: false)
         }
         // Claude Code dynamic-workflow/subagent files can share one raw
         // sessionId with the main rollout file. A per-file full reset would
         // delete rows imported from sibling files in that same session, so
         // rebuild the whole session group whenever any sibling needs reset.
-        let resetSessionIds = Set(
+        let resetGroupIds = Set(
             plannedByPath.values
                 .filter(\.resetSession)
-                .map { $0.file.sessionId })
-        if !resetSessionIds.isEmpty {
-            for file in files where resetSessionIds.contains(file.sessionId) {
+                .map(\.groupId))
+        if !resetGroupIds.isEmpty {
+            for file in files {
+                let group = groupId(file)
+                guard resetGroupIds.contains(group) else { continue }
                 plannedByPath[file.path] = PlannedScan(
                     file: file,
+                    groupId: group,
                     fromOffset: 0,
                     resetSession: true)
             }
@@ -133,27 +158,27 @@ actor ClaudeImportEngine {
             totalFiles: planned.count,
             currentFile: planned.first?.file.url.lastPathComponent))
 
-        var importedSessions = 0
+        var importedSessionIds: Set<String> = []
         var importedEvents = 0
         var errors: [String] = []
 
-        var resetSessionsCompleted: Set<String> = []
+        var resetGroupsCompleted: Set<String> = []
         for (index, plan) in planned.enumerated() {
             do {
                 let output = try ClaudeRolloutParser.parse(
                     fileURL: plan.file.url, fromOffset: plan.fromOffset)
                 if let parsed = output.session {
                     let shouldReset = plan.resetSession
-                        && !resetSessionsCompleted.contains(plan.file.sessionId)
+                        && !resetGroupsCompleted.contains(plan.groupId)
                     let count = try await persist(
                         parsed: parsed,
                         file: plan.file,
                         byteOffset: output.endOffset,
                         resetSession: shouldReset)
                     if shouldReset {
-                        resetSessionsCompleted.insert(plan.file.sessionId)
+                        resetGroupsCompleted.insert(plan.groupId)
                     }
-                    importedSessions += 1
+                    importedSessionIds.insert(parsed.sessionId)
                     importedEvents += count
                 } else {
                     // Either the slice contained nothing, or this is a
@@ -163,6 +188,19 @@ actor ClaudeImportEngine {
                 }
             } catch {
                 errors.append("\(plan.file.path): \(error)")
+                // A sibling's session reset may already have deleted this
+                // file's rows. If its import_state were left matching the
+                // on-disk size/mtime, the next scan would skip the file and
+                // its usage would be silently lost — force a full re-read.
+                if plan.resetSession {
+                    do {
+                        try await invalidateImportState(
+                            file: plan.file, groupId: plan.groupId)
+                    } catch {
+                        errors.append(
+                            "\(plan.file.path): failed to invalidate import state: \(error)")
+                    }
+                }
             }
             let nextIndex = index + 1
             let nextFile = nextIndex < planned.count
@@ -178,7 +216,7 @@ actor ClaudeImportEngine {
         return ImportEngine.ScanReport(
             scannedFiles: files.count,
             changedFiles: planned.count,
-            importedSessions: importedSessions,
+            importedSessions: importedSessionIds.count,
             importedEvents: importedEvents,
             importedRateLimitSamples: 0,    // Claude rollouts don't carry rate-limit samples.
             errors: errors)
@@ -192,13 +230,22 @@ actor ClaudeImportEngine {
         let fileSize: Int64
         let fileMtimeMs: Int64
         var sessionId: String {
+            // `firstIndex`, not `lastIndex`: nested layouts like
+            // `<sid>/subagents/<agent>/subagents/<file>.jsonl` must group
+            // under the root session — grouping under the inner agent
+            // would let its reset delete the root session's rows while
+            // only re-reading the inner group.
             let components = url.pathComponents
-            if let subagents = components.lastIndex(of: "subagents"),
+            if let subagents = components.firstIndex(of: "subagents"),
                subagents > components.startIndex {
                 return components[components.index(before: subagents)]
             }
             return url.deletingPathExtension().lastPathComponent
         }
+
+        /// True for files under a `subagents/` directory — they belong to
+        /// the enclosing rollout's session rather than a session of their own.
+        var isSubagentFile: Bool { url.pathComponents.contains("subagents") }
     }
 
     private func scanFiles() -> [ClaudeFile] {
@@ -244,6 +291,25 @@ actor ClaudeImportEngine {
         }
     }
 
+    /// Force a full re-read of `file` on the next scan. Used when a scan
+    /// fails after a sibling's session reset may already have deleted this
+    /// file's rows: the sentinel size/mtime can never match the on-disk
+    /// file, and `byteOffset == 0` routes the next scan through the full
+    /// reset path (same shape the v6/v7 migrations use).
+    private func invalidateImportState(file: ClaudeFile, groupId: String) async throws {
+        let now = ISO8601.fractional.string(from: Date())
+        try await database.pool.write { db in
+            let state = ImportStateRecord(
+                sourcePath: file.path,
+                sessionId: groupId,
+                fileSize: -1,
+                fileMtimeMs: -1,
+                lastImportedAt: now,
+                byteOffset: 0)
+            try state.save(db)
+        }
+    }
+
     // MARK: - persist
 
     private func persist(
@@ -271,19 +337,59 @@ actor ClaudeImportEngine {
                 }
                 return parsed.title
             }()
+            let isSubagent = file.isSubagentFile
+            // Multiple files can persist into one session row (main rollout
+            // + subagent siblings, imported in path order). Last-writer-wins
+            // would leave source_path pointing at whichever subagent file
+            // sorted last — keep it on the main rollout.
+            let resolvedSourcePath: String? = {
+                if !isSubagent { return file.path }
+                if let existingPath = existing?.sourcePath, !existingPath.isEmpty {
+                    return existingPath
+                }
+                return file.path
+            }()
+            // A subagent file whose last event is older than the main
+            // rollout's must not drag updated_at backwards. ISO-8601 UTC
+            // strings compare lexicographically.
+            let resolvedUpdatedAt: String? = {
+                if !resetSession, let existingUpdated = existing?.updatedAt {
+                    guard let parsedUpdated = parsed.updatedAt else {
+                        return existingUpdated
+                    }
+                    return max(existingUpdated, parsedUpdated)
+                }
+                return parsed.updatedAt
+            }()
+            let resolvedContainsSubagents: Bool = {
+                if resetSession { return isSubagent }
+                return (existing?.containsSubagents ?? false) || isSubagent
+            }()
+            // Same staleness rule as updated_at: an older sibling file must
+            // not overwrite the model recorded from a newer one.
+            let resolvedLastModelId: String? = {
+                if !resetSession, let existing,
+                   let existingUpdated = existing.updatedAt,
+                   let parsedUpdated = parsed.updatedAt,
+                   parsedUpdated < existingUpdated,
+                   let existingModel = existing.lastModelId {
+                    return existingModel
+                }
+                return parsed.lastModelId
+            }()
             let session = SessionRecord(
                 sessionId: parsed.sessionId,
                 rootSessionId: parsed.sessionId,
                 parentSessionId: nil,
                 title: resolvedTitle,
-                sourcePath: file.path,
+                sourcePath: resolvedSourcePath,
                 startedAt: resolvedStartedAt,
-                updatedAt: parsed.updatedAt,
+                updatedAt: resolvedUpdatedAt,
                 agentNickname: nil,
                 agentRole: nil,
-                lastModelId: parsed.lastModelId,
+                lastModelId: resolvedLastModelId,
                 latestPlanType: nil,
-                containsSubagents: false,
+                containsSubagents: resolvedContainsSubagents,
                 createdAt: existing?.createdAt ?? now,
                 importedAt: now,
                 provider: "claude")

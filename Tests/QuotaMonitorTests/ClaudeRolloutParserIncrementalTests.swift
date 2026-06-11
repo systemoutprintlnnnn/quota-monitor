@@ -66,6 +66,32 @@ struct ClaudeRolloutParserIncrementalTests {
             url: dir.appendingPathComponent("quotamonitor.sqlite"))
     }
 
+    private func makeProjectRoot() throws -> (root: URL, project: URL) {
+        let root = URL(
+            fileURLWithPath: NSTemporaryDirectory(),
+            isDirectory: true
+        ).appendingPathComponent("qm-claude-root-\(UUID().uuidString)",
+                                 isDirectory: true)
+        let project = root.appendingPathComponent("-repo", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: project, withIntermediateDirectories: true)
+        return (root, project)
+    }
+
+    private func claudeModelCounts(in db: DatabaseManager) async throws -> [String: Int] {
+        try await db.pool.read { conn in
+            let rows = try Row.fetchAll(conn, sql: """
+                SELECT model_id, COUNT(*) AS events
+                FROM usage_events
+                WHERE provider = 'claude'
+                GROUP BY model_id
+                """)
+            return Dictionary(uniqueKeysWithValues: rows.map {
+                ($0["model_id"] as String, $0["events"] as Int)
+            })
+        }
+    }
+
     // MARK: - 1. mid-write tail leaves endOffset behind the partial line
 
     @Test("mid-write tail: endOffset stops at last complete newline")
@@ -150,14 +176,7 @@ struct ClaudeRolloutParserIncrementalTests {
     @Test("Claude import preserves existing events when a shared-session subagent file is added")
     func sharedSessionSubagentFileDoesNotReplaceMainFileEvents() async throws {
         let db = try makeDatabase()
-        let root = URL(
-            fileURLWithPath: NSTemporaryDirectory(),
-            isDirectory: true
-        ).appendingPathComponent("qm-claude-root-\(UUID().uuidString)",
-                                 isDirectory: true)
-        let project = root.appendingPathComponent("-repo", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: project, withIntermediateDirectories: true)
+        let (root, project) = try makeProjectRoot()
 
         let sid = "shared-session"
         let main = project.appendingPathComponent("\(sid).jsonl")
@@ -177,27 +196,185 @@ struct ClaudeRolloutParserIncrementalTests {
         try FileManager.default.createDirectory(
             at: subagentDir, withIntermediateDirectories: true)
         let subagent = subagentDir.appendingPathComponent("agent-a.jsonl")
+        // Older timestamp than the main rollout's: the subagent file is
+        // imported second and must not drag the session header backwards.
         try (assistantLine(
             sid: sid, msgId: "agent-1",
+            ts: "2026-05-13T09:00:00.000Z",
             model: "claude-haiku-4-5-20251001",
             input: 20, output: 2
         ) + "\n").write(to: subagent, atomically: true, encoding: .utf8)
 
+        let report = try await engine.performScan()
+
+        // A new sibling in an already-imported session appends via the
+        // unique index — it must NOT trigger a session reset that forces
+        // the unchanged main rollout through a full re-read.
+        #expect(report.changedFiles == 1)
+        #expect(report.importedSessions == 1)
+
+        let counts = try await claudeModelCounts(in: db)
+        #expect(counts == [
+            "claude-haiku-4-5-20251001": 1,
+            "claude-opus-4-8": 1,
+        ])
+
+        let session = try #require(try await db.pool.read { conn in
+            try Row.fetchOne(conn, sql: """
+                SELECT source_path, updated_at, last_model_id, contains_subagents
+                FROM sessions
+                WHERE session_id = ?
+                """, arguments: [sid])
+        })
+        // source_path stays on the main rollout; the subagent sibling
+        // (imported last) must not steal it.
+        #expect((session["source_path"] as String).hasSuffix("\(sid).jsonl"))
+        // The subagent file's older events must not move updated_at /
+        // last_model_id backwards.
+        #expect((session["updated_at"] as String) == "2026-05-13T10:00:00.000Z")
+        #expect((session["last_model_id"] as String) == "claude-opus-4-8")
+        #expect((session["contains_subagents"] as Bool) == true)
+    }
+
+    @Test("session-group reset rebuilds unchanged sibling files instead of dropping their events")
+    func sessionGroupResetRebuildsSiblings() async throws {
+        let db = try makeDatabase()
+        let (root, project) = try makeProjectRoot()
+
+        let sid = "shared-truncate"
+        let main = project.appendingPathComponent("\(sid).jsonl")
+        try (assistantLine(sid: sid, msgId: "main-1", model: "claude-opus-4-8") + "\n"
+            + assistantLine(sid: sid, msgId: "main-2", model: "claude-opus-4-8") + "\n")
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        let subagentDir = project
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent("subagents", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: subagentDir, withIntermediateDirectories: true)
+        let subagent = subagentDir.appendingPathComponent("agent-a.jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "agent-1",
+            model: "claude-haiku-4-5-20251001"
+        ) + "\n").write(to: subagent, atomically: true, encoding: .utf8)
+
+        let engine = ClaudeImportEngine(database: db, claudeRoots: [root])
+        _ = try await engine.performScan()
+        #expect(try await claudeModelCounts(in: db) == [
+            "claude-haiku-4-5-20251001": 1,
+            "claude-opus-4-8": 2,
+        ])
+
+        // Truncate the main rollout below the consumed offset — that
+        // triggers a session reset, which deletes the WHOLE session's rows.
+        // The unchanged subagent sibling must be pulled into the rebuild,
+        // not skipped (skipping would silently lose its events).
+        try (assistantLine(sid: sid, msgId: "main-1", model: "claude-opus-4-8") + "\n")
+            .write(to: main, atomically: true, encoding: .utf8)
+        let report = try await engine.performScan()
+
+        #expect(report.changedFiles == 2)
+        #expect(try await claudeModelCounts(in: db) == [
+            "claude-haiku-4-5-20251001": 1,
+            "claude-opus-4-8": 1,
+        ])
+    }
+
+    @Test("nested subagents directories group under the root session")
+    func nestedSubagentFileGroupsUnderRootSession() async throws {
+        let db = try makeDatabase()
+        let (root, project) = try makeProjectRoot()
+
+        let sid = "shared-nested"
+        let main = project.appendingPathComponent("\(sid).jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "main-1", model: "claude-opus-4-8"
+        ) + "\n").write(to: main, atomically: true, encoding: .utf8)
+
+        let engine = ClaudeImportEngine(database: db, claudeRoots: [root])
         _ = try await engine.performScan()
 
-        let rows = try await db.pool.read { conn in
-            try Row.fetchAll(conn, sql: """
-                SELECT model_id, COUNT(*) AS events
-                FROM usage_events
-                WHERE provider = 'claude'
-                GROUP BY model_id
-                ORDER BY model_id
-                """)
+        // A subagent of a subagent: `<sid>/subagents/wf-1/agent-a/subagents/`.
+        // Deriving the group from the LAST `subagents` component would file
+        // this under "agent-a" — an unknown group, so its import would reset
+        // the root session and delete the main rollout's rows.
+        let nestedDir = project
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent("subagents/wf-1/agent-a/subagents",
+                                    isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: nestedDir, withIntermediateDirectories: true)
+        let nested = nestedDir.appendingPathComponent("agent-b.jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "agent-b-1",
+            model: "claude-haiku-4-5-20251001"
+        ) + "\n").write(to: nested, atomically: true, encoding: .utf8)
+
+        let report = try await engine.performScan()
+
+        #expect(report.changedFiles == 1)
+        #expect(try await claudeModelCounts(in: db) == [
+            "claude-haiku-4-5-20251001": 1,
+            "claude-opus-4-8": 1,
+        ])
+    }
+
+    @Test("a failed read after a session reset is retried on the next scan")
+    func failedReadAfterSessionResetIsRetried() async throws {
+        let db = try makeDatabase()
+        let (root, project) = try makeProjectRoot()
+        let fm = FileManager.default
+
+        let sid = "shared-error"
+        let main = project.appendingPathComponent("\(sid).jsonl")
+        try (assistantLine(sid: sid, msgId: "main-1", model: "claude-opus-4-8") + "\n"
+            + assistantLine(sid: sid, msgId: "main-2", model: "claude-opus-4-8") + "\n")
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        let subagentDir = project
+            .appendingPathComponent(sid, isDirectory: true)
+            .appendingPathComponent("subagents", isDirectory: true)
+        try fm.createDirectory(
+            at: subagentDir, withIntermediateDirectories: true)
+        let subagent = subagentDir.appendingPathComponent("agent-a.jsonl")
+        try (assistantLine(
+            sid: sid, msgId: "agent-1",
+            model: "claude-haiku-4-5-20251001"
+        ) + "\n").write(to: subagent, atomically: true, encoding: .utf8)
+
+        let engine = ClaudeImportEngine(database: db, claudeRoots: [root])
+        _ = try await engine.performScan()
+
+        // Truncate the main rollout (forces a session-group reset) while
+        // the subagent sibling is unreadable: the reset deletes its rows
+        // and the re-read fails.
+        try (assistantLine(sid: sid, msgId: "main-1", model: "claude-opus-4-8") + "\n")
+            .write(to: main, atomically: true, encoding: .utf8)
+        try fm.setAttributes(
+            [.posixPermissions: 0o000], ofItemAtPath: subagent.path)
+        guard !fm.isReadableFile(atPath: subagent.path) else {
+            // Running as root — permissions can't make the file unreadable,
+            // so the failure path can't be simulated.
+            try fm.setAttributes(
+                [.posixPermissions: 0o644], ofItemAtPath: subagent.path)
+            return
         }
-        let counts = Dictionary(uniqueKeysWithValues: rows.map {
-            ($0["model_id"] as String, $0["events"] as Int)
-        })
-        #expect(counts == [
+
+        let failedReport = try await engine.performScan()
+        #expect(failedReport.errors.count == 1)
+        #expect(try await claudeModelCounts(in: db) == [
+            "claude-opus-4-8": 1,
+        ])
+
+        // The file itself is untouched (same size/mtime). Without the
+        // import_state invalidation the next scan would skip it and its
+        // usage would be lost forever.
+        try fm.setAttributes(
+            [.posixPermissions: 0o644], ofItemAtPath: subagent.path)
+        let recoveredReport = try await engine.performScan()
+
+        #expect(recoveredReport.errors.isEmpty)
+        #expect(try await claudeModelCounts(in: db) == [
             "claude-haiku-4-5-20251001": 1,
             "claude-opus-4-8": 1,
         ])

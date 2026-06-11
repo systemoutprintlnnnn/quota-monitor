@@ -24,14 +24,15 @@ struct MigrationsTests {
                     identifier TEXT NOT NULL PRIMARY KEY
                 )
                 """)
-            for migration in [
-                "v1",
-                "v2-litellm-pricing",
-                "v3-multi-provider",
-                "v4-model-inferred",
-                "v5-incremental-imports",
-                "v6-claude-cache-creation-duration",
-            ] {
+            // Mark every registered migration EXCEPT v7 as already applied,
+            // so opening the database below runs exactly the migration under
+            // test. Deriving the list from `Migrations.register` keeps this
+            // test scoped to v7 when future migrations are added — a v8
+            // would otherwise run against this hand-built schema and break.
+            var migrator = DatabaseMigrator()
+            Migrations.register(in: &migrator)
+            for migration in migrator.migrations
+            where migration != "v7-claude-shared-session-reread" {
                 try db.execute(
                     sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)",
                     arguments: [migration])
