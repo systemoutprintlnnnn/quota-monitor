@@ -34,11 +34,10 @@ window copy.
 - Dashboard's tool selector now stays neatly in the title bar without crowding the window buttons
 - Claude settings now hide the credential-source picker and offer recovery only when automatic refresh is disabled
 - Claude 5-hour quota rows keep the last reset value visible instead of turning into an empty idle line
-- The same app can now also be installed as CodexMonitor — identical features under a different name, with its own update channel
+- Claude Code model statistics are more accurate, and Claude Fable 5 usage can be priced
 
 ### Added
 - **Product manual.** A new Chinese guide explains onboarding, the menu-bar popover, Dashboard, History, Sessions, Settings, updates, and uninstall flows with screenshots.
-- **CodexMonitor edition.** Every release now also ships a CodexMonitor-branded build with its own update feed. Existing installs keep their data and settings regardless of which name they run under.
 
 ### Changed
 - **Claude credential settings.** Advanced settings now use automatic Claude credential refresh by default, hide the file-only/Keychain picker from normal use, and show a restore button only when a saved file-only mode can stop live quota refreshes.
@@ -48,6 +47,7 @@ window copy.
 - **Dashboard filter layout.** The title-bar tool selector now uses a stable labeled menu, preventing it from collapsing into a tiny control or overlapping the window title after opening or moving the window.
 - **Local QA preference isolation.** QA runs now refuse the installed app's preferences domain, preventing QA-only defaults from leaking into installed app settings.
 - **Claude reset quota row.** When Claude's current 5-hour window has reset and the next `/usage` response only reports 7-day quota, the popover keeps the last 5-hour percentage greyed out with a reset hint.
+- **Claude Code model statistics.** Claude imports now keep the final usage snapshot for each streamed message, so model totals and cost estimates no longer undercount output tokens; Claude Fable 5 usage also has a bundled price seed.
 
 ## [0.2.31] — 2026-06-08
 
