@@ -22,9 +22,9 @@ respective official APIs.
    shown in the installer window.
 3. Open **QuotaMonitor.app** from Applications.
 
-Current release builds are Developer ID signed and notarized. Existing users
-continue to update through the in-app Sparkle updater; the appcast identity and
-bundle identifier stay unchanged.
+Release builds produced by the tag workflow are Developer ID signed and
+notarized. Existing users continue to update through the in-app Sparkle updater;
+the appcast identity and bundle identifier stay unchanged.
 
 Optional integrity check after download:
 
@@ -83,7 +83,7 @@ open .build/QuotaMonitor.app
 CONFIG=release ./build.sh   # release build
 
 ./tools/make-dmg.sh         # release + dist/QuotaMonitor-<ver>.dmg with installer-window layout
-./tools/release.sh          # full pipeline: tests + Developer ID release + DMG + sha256 + self-check
+./tools/release.sh          # full pipeline; Developer ID when configured, otherwise local/ad-hoc
 ```
 
 Version is sourced from `Resources/VERSION` — bump that single file to
@@ -168,8 +168,10 @@ QuotaMonitor/
     ├── release.sh                  // one-command release pipeline
     ├── make-dmg.sh                 // staged UDRW → AppleScript layout → UDZO
     ├── make-dmg-bg.swift           // regenerate the installer-window PNG
+    ├── developer-id-common.sh      // shared Developer ID identity/notary helpers
     ├── make-icon.sh                // app icon generator
-    └── notarize.sh                 // unused — kept for future Developer ID flow
+    ├── notarize.sh                 // Developer ID sign/notarize/staple the app
+    └── notarize-dmg.sh             // Developer ID sign/notarize/staple the DMG
 ```
 
 ## Reference projects
