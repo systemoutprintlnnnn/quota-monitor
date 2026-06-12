@@ -30,6 +30,12 @@ window copy.
 
 ## [Unreleased]
 
+#### Summary
+- New downloads open normally, while existing installs keep updating in place
+
+### Changed
+- **Trusted release delivery.** Public releases now use Apple Developer ID distribution while keeping the same Sparkle update identity, so installed copies can keep using in-app updates.
+
 ## [0.2.32] — 2026-06-12
 
 #### Summary
