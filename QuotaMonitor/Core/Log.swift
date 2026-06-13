@@ -9,6 +9,7 @@ import OSLog
 enum Log {
     static let subsystem = "dev.tjzhou.QuotaMonitor"
 
+    static let app        = Logger(subsystem: subsystem, category: "app")
     static let appServer  = Logger(subsystem: subsystem, category: "appserver")
     static let importer   = Logger(subsystem: subsystem, category: "importer")
     static let poller     = Logger(subsystem: subsystem, category: "poller")
@@ -20,6 +21,7 @@ enum Log {
 
     static func logger(category: String) -> Logger {
         switch category {
+        case "app": return app
         case "appserver": return appServer
         case "importer": return importer
         case "poller": return poller
