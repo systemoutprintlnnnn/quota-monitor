@@ -17,4 +17,18 @@ enum Log {
     static let ui         = Logger(subsystem: subsystem, category: "ui")
     static let discover   = Logger(subsystem: subsystem, category: "discover")
     static let updater    = Logger(subsystem: subsystem, category: "updater")
+
+    static func logger(category: String) -> Logger {
+        switch category {
+        case "appserver": return appServer
+        case "importer": return importer
+        case "poller": return poller
+        case "pricing": return pricing
+        case "storage": return storage
+        case "ui": return ui
+        case "discover": return discover
+        case "updater": return updater
+        default: return Logger(subsystem: subsystem, category: category)
+        }
+    }
 }
